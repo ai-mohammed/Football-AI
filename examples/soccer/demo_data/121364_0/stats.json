@@ -3,16 +3,16 @@
   "frames": 300,
   "stride": 1,
   "possession_pct": {
-    "0": 42.9,
-    "1": 57.1
+    "0": 28.6,
+    "1": 71.4
   },
   "players": [
     {
       "label": "ID4",
-      "team_id": 0,
+      "team_id": 1,
       "touches": 1,
-      "passes_made": 0,
-      "passes_received": 0,
+      "passes_made": 1,
+      "passes_received": 1,
       "distance_m": 43.1,
       "avg_speed_kmh": 13.1
     },
@@ -20,7 +20,7 @@
       "label": "ID1",
       "team_id": 1,
       "touches": 1,
-      "passes_made": 0,
+      "passes_made": 1,
       "passes_received": 1,
       "distance_m": 47.8,
       "avg_speed_kmh": 14.5
@@ -30,7 +30,7 @@
       "team_id": 0,
       "touches": 1,
       "passes_made": 0,
-      "passes_received": 1,
+      "passes_received": 0,
       "distance_m": 53.2,
       "avg_speed_kmh": 16.1
     },
@@ -65,8 +65,8 @@
       "label": "ID14",
       "team_id": 1,
       "touches": 1,
-      "passes_made": 1,
-      "passes_received": 0,
+      "passes_made": 0,
+      "passes_received": 1,
       "distance_m": 55.0,
       "avg_speed_kmh": 16.8
     },
@@ -195,24 +195,6 @@
       "passes_received": 0,
       "distance_m": 8.2,
       "avg_speed_kmh": 11.5
-    },
-    {
-      "label": "ID19",
-      "team_id": 1,
-      "touches": 0,
-      "passes_made": 0,
-      "passes_received": 0,
-      "distance_m": 0.0,
-      "avg_speed_kmh": 0.0
-    },
-    {
-      "label": "ID24",
-      "team_id": 0,
-      "touches": 0,
-      "passes_made": 0,
-      "passes_received": 0,
-      "distance_m": 0.0,
-      "avg_speed_kmh": 0.0
     },
     {
       "label": "ID26",

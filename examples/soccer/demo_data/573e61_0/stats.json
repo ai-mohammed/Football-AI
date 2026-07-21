@@ -3,13 +3,13 @@
   "frames": 300,
   "stride": 1,
   "possession_pct": {
-    "0": 71.4,
-    "1": 28.6
+    "0": 0.0,
+    "1": 100.0
   },
   "players": [
     {
       "label": "ID22",
-      "team_id": 0,
+      "team_id": 1,
       "touches": 3,
       "passes_made": 2,
       "passes_received": 3,
@@ -27,7 +27,7 @@
     },
     {
       "label": "ID23",
-      "team_id": 0,
+      "team_id": 1,
       "touches": 1,
       "passes_made": 1,
       "passes_received": 1,
@@ -35,17 +35,8 @@
       "avg_speed_kmh": 11.8
     },
     {
-      "label": "ID15",
-      "team_id": 0,
-      "touches": 1,
-      "passes_made": 1,
-      "passes_received": 0,
-      "distance_m": 4.5,
-      "avg_speed_kmh": 9.2
-    },
-    {
       "label": "#1",
-      "team_id": 1,
+      "team_id": 0,
       "touches": 0,
       "passes_made": 0,
       "passes_received": 0,
@@ -54,7 +45,7 @@
     },
     {
       "label": "#9",
-      "team_id": 0,
+      "team_id": 1,
       "touches": 0,
       "passes_made": 0,
       "passes_received": 0,
@@ -62,17 +53,8 @@
       "avg_speed_kmh": 11.3
     },
     {
-      "label": "#29",
-      "team_id": 0,
-      "touches": 0,
-      "passes_made": 0,
-      "passes_received": 0,
-      "distance_m": 1.8,
-      "avg_speed_kmh": 4.9
-    },
-    {
       "label": "ID10",
-      "team_id": 1,
+      "team_id": 0,
       "touches": 0,
       "passes_made": 0,
       "passes_received": 0,
@@ -81,7 +63,7 @@
     },
     {
       "label": "ID4",
-      "team_id": 1,
+      "team_id": 0,
       "touches": 0,
       "passes_made": 0,
       "passes_received": 0,
@@ -90,7 +72,7 @@
     },
     {
       "label": "ID14",
-      "team_id": 1,
+      "team_id": 0,
       "touches": 0,
       "passes_made": 0,
       "passes_received": 0,
@@ -99,7 +81,7 @@
     },
     {
       "label": "ID7",
-      "team_id": 0,
+      "team_id": 1,
       "touches": 0,
       "passes_made": 0,
       "passes_received": 0,
@@ -108,7 +90,7 @@
     },
     {
       "label": "ID2",
-      "team_id": 0,
+      "team_id": 1,
       "touches": 0,
       "passes_made": 0,
       "passes_received": 0,
@@ -117,7 +99,7 @@
     },
     {
       "label": "ID8",
-      "team_id": 0,
+      "team_id": 1,
       "touches": 0,
       "passes_made": 0,
       "passes_received": 0,
@@ -126,7 +108,7 @@
     },
     {
       "label": "ID3",
-      "team_id": 0,
+      "team_id": 1,
       "touches": 0,
       "passes_made": 0,
       "passes_received": 0,
@@ -135,7 +117,7 @@
     },
     {
       "label": "ID5",
-      "team_id": 0,
+      "team_id": 1,
       "touches": 0,
       "passes_made": 0,
       "passes_received": 0,
@@ -144,7 +126,7 @@
     },
     {
       "label": "ID11",
-      "team_id": 1,
+      "team_id": 0,
       "touches": 0,
       "passes_made": 0,
       "passes_received": 0,
@@ -153,7 +135,7 @@
     },
     {
       "label": "ID9",
-      "team_id": 0,
+      "team_id": 1,
       "touches": 0,
       "passes_made": 0,
       "passes_received": 0,
@@ -162,7 +144,7 @@
     },
     {
       "label": "ID12",
-      "team_id": 1,
+      "team_id": 0,
       "touches": 0,
       "passes_made": 0,
       "passes_received": 0,
@@ -171,7 +153,7 @@
     },
     {
       "label": "ID18",
-      "team_id": 1,
+      "team_id": 0,
       "touches": 0,
       "passes_made": 0,
       "passes_received": 0,
@@ -180,7 +162,7 @@
     },
     {
       "label": "ID20",
-      "team_id": 1,
+      "team_id": 0,
       "touches": 0,
       "passes_made": 0,
       "passes_received": 0,
@@ -189,7 +171,7 @@
     },
     {
       "label": "ID19",
-      "team_id": 1,
+      "team_id": 0,
       "touches": 0,
       "passes_made": 0,
       "passes_received": 0,
@@ -198,39 +180,12 @@
     },
     {
       "label": "ID24",
-      "team_id": 0,
+      "team_id": 1,
       "touches": 0,
       "passes_made": 0,
       "passes_received": 0,
       "distance_m": 33.6,
       "avg_speed_kmh": 13.7
-    },
-    {
-      "label": "ID21",
-      "team_id": 1,
-      "touches": 0,
-      "passes_made": 0,
-      "passes_received": 0,
-      "distance_m": 0.0,
-      "avg_speed_kmh": 0.0
-    },
-    {
-      "label": "ID13",
-      "team_id": 0,
-      "touches": 0,
-      "passes_made": 0,
-      "passes_received": 0,
-      "distance_m": 0.3,
-      "avg_speed_kmh": 5.4
-    },
-    {
-      "label": "ID26",
-      "team_id": 0,
-      "touches": 0,
-      "passes_made": 0,
-      "passes_received": 0,
-      "distance_m": 1.7,
-      "avg_speed_kmh": 9.6
     }
   ]
 }

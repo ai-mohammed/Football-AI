@@ -68,6 +68,15 @@ MIN_OCR_READS_FOR_LABEL = 3
 # processed frames instead of every single one — see the comment in
 # PlayerMatchAnalyzer.process for why this is a safe trade-off.
 PITCH_DETECTION_INTERVAL = 5
+# Frames to keep a lost track alive before giving up and assigning a new
+# tracker id on reappearance (ByteTrack default is 30 — too short: a player
+# briefly occluded or stepping out of frame would come back as a "new"
+# player, inflating headcounts past 11 per team in the report/pass network).
+LOST_TRACK_BUFFER = 90
+# Drop tracker fragments shorter than this from reports — almost always
+# leftover noise from a track that got lost and re-created with a new id,
+# not a genuine extra player.
+MIN_TRAJECTORY_FRAMES_FOR_REPORT = 15
 
 
 def ocr_available() -> bool:
@@ -81,6 +90,10 @@ def ocr_available() -> bool:
 @dataclass
 class _TrackerStats:
     team_id: Optional[int] = None
+    # Every frame's raw team-classification prediction for this tracker;
+    # team_id is the majority vote across these, so a single noisy frame
+    # can't flip the player's on-screen color or team assignment.
+    team_votes: Counter = field(default_factory=Counter)
     jersey_votes: Counter = field(default_factory=Counter)
     touches: int = 0
     passes_made: int = 0
@@ -124,6 +137,7 @@ class PlayerMatchAnalyzer:
         self._ocr_reader = None
         self.stats: Dict[int, _TrackerStats] = defaultdict(_TrackerStats)
         self.current_possessor: Optional[int] = None
+        self.total_frames_processed: int = 0
         # (from_tracker_id, to_tracker_id) -> number of passes exchanged.
         self.pass_edges: Counter = Counter()
         self.seconds_per_processed_frame: float = 0.0
@@ -158,7 +172,11 @@ class PlayerMatchAnalyzer:
 
         frame_generator = sv.get_video_frames_generator(
             source_path=source_video_path, stride=stride)
-        tracker = sv.ByteTrack(minimum_consecutive_frames=3)
+        tracker = sv.ByteTrack(
+            minimum_consecutive_frames=3,
+            lost_track_buffer=LOST_TRACK_BUFFER,
+            frame_rate=fps,
+        )
         ball_tracker = BallTracker(buffer_size=20)
 
         def ball_callback(image_slice: np.ndarray) -> sv.Detections:
@@ -175,6 +193,7 @@ class PlayerMatchAnalyzer:
         transformer = None
         for frame in frame_generator:
             frame_idx += 1
+            self.total_frames_processed = frame_idx
 
             # Re-running pitch keypoint detection every single frame is one of
             # three YOLO calls per frame, and the broadcast camera moves little
@@ -209,26 +228,42 @@ class PlayerMatchAnalyzer:
                 players_team_id.tolist() + goalkeepers_team_id.tolist()
             )
 
+            if len(pg_detections):
+                self._record_team_votes(pg_detections, pg_color_lookup)
+
             ball_detections = ball_slicer(frame).with_nms(threshold=0.1)
             ball_detections = ball_tracker.update(ball_detections)
 
             if transformer is not None and len(pg_detections):
                 self._update_positions(
-                    pg_detections, pg_color_lookup, transformer,
-                    seconds_per_processed_frame)
-                self._update_possession(
-                    pg_detections, pg_color_lookup, ball_detections, transformer)
+                    pg_detections, transformer, seconds_per_processed_frame)
+                self._update_possession(pg_detections, ball_detections, transformer)
 
             self._sample_jersey_numbers(frame, pg_detections, frame_idx)
 
             all_detections = sv.Detections.merge([players, goalkeepers, referees])
-            color_lookup = np.array(
-                players_team_id.tolist() + goalkeepers_team_id.tolist() +
-                [REFEREE_CLASS_ID] * len(referees)
-            )
+            color_lookup = self._color_lookup_for(all_detections)
             yield self._annotate(frame, all_detections, color_lookup, ball_detections)
 
-    def _update_positions(self, pg_detections, pg_color_lookup, transformer, seconds_per_frame):
+    def _record_team_votes(self, pg_detections, pg_color_lookup):
+        for i, tracker_id in enumerate(pg_detections.tracker_id):
+            if tracker_id is None:
+                continue
+            stat = self.stats[tracker_id]
+            stat.team_votes[int(pg_color_lookup[i])] += 1
+            stat.team_id = stat.team_votes.most_common(1)[0][0]
+
+    def _color_lookup_for(self, detections) -> np.ndarray:
+        lookup = []
+        tracker_ids = detections.tracker_id if detections.tracker_id is not None else []
+        for tracker_id in tracker_ids:
+            stat = self.stats.get(tracker_id) if tracker_id is not None else None
+            lookup.append(
+                stat.team_id if stat is not None and stat.team_id is not None
+                else REFEREE_CLASS_ID)
+        return np.array(lookup)
+
+    def _update_positions(self, pg_detections, transformer, seconds_per_frame):
         xy = transformer.transform_points(
             pg_detections.get_anchors_coordinates(sv.Position.BOTTOM_CENTER))
         max_delta_cm = MAX_PLAUSIBLE_SPEED_M_PER_S * 100 * seconds_per_frame
@@ -236,7 +271,6 @@ class PlayerMatchAnalyzer:
             if tracker_id is None:
                 continue
             stat = self.stats[tracker_id]
-            stat.team_id = int(pg_color_lookup[i])
             point = xy[i]
             if stat.last_xy is not None:
                 delta_cm = float(np.linalg.norm(point - stat.last_xy))
@@ -245,7 +279,7 @@ class PlayerMatchAnalyzer:
             stat.last_xy = point
             stat.trajectory.append([float(point[0]), float(point[1])])
 
-    def _update_possession(self, pg_detections, pg_color_lookup, ball_detections, transformer):
+    def _update_possession(self, pg_detections, ball_detections, transformer):
         if len(ball_detections) == 0 or len(pg_detections) == 0:
             return
         ball_xy = transformer.transform_points(
@@ -264,9 +298,8 @@ class PlayerMatchAnalyzer:
         if tracker_id is None or tracker_id == self.current_possessor:
             return
 
-        team_id = int(pg_color_lookup[nearest_idx])
         stat = self.stats[tracker_id]
-        stat.team_id = team_id
+        team_id = stat.team_id
         stat.touches += 1
 
         if self.current_possessor is not None and self.current_possessor in self.stats:
@@ -362,6 +395,13 @@ class PlayerMatchAnalyzer:
                 'trajectory': np.array(stat.trajectory) if stat.trajectory else np.empty((0, 2)),
             })
         merged = _merge_by_jersey_number(players)
+        # Scale the cutoff with clip length: a fixed frame count is too
+        # lenient on long clips (keeps tiny fragments) and too strict on
+        # very short ones.
+        min_frames = max(
+            MIN_TRAJECTORY_FRAMES_FOR_REPORT,
+            int(0.15 * self.total_frames_processed))
+        merged = [row for row in merged if len(row['trajectory']) >= min_frames]
         for row in merged:
             seconds = len(row['trajectory']) * self.seconds_per_processed_frame
             row['avg_speed_kmh'] = (

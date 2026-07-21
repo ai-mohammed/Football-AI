@@ -1,4 +1,5 @@
 import argparse
+from collections import Counter, defaultdict
 from enum import Enum
 from typing import Iterator, List
 
@@ -26,6 +27,10 @@ PLAYER_CLASS_ID = 2
 REFEREE_CLASS_ID = 3
 
 STRIDE = 60
+# Frames to keep a lost track alive before assigning a new tracker id on
+# reappearance. ByteTrack's default (30) is short enough that a player
+# briefly occluded or stepping out of frame often comes back as a "new" id.
+LOST_TRACK_BUFFER = 90
 CONFIG = SoccerPitchConfiguration()
 
 COLORS = ['#FF1493', '#00BFFF', '#FF6347', '#FFD700']
@@ -127,6 +132,34 @@ def resolve_goalkeepers_team_id(
         dist_1 = np.linalg.norm(goalkeeper_xy - team_1_centroid)
         goalkeepers_team_id.append(0 if dist_0 < dist_1 else 1)
     return np.array(goalkeepers_team_id)
+
+
+def smoothed_color_lookup(
+    team_votes: dict,
+    players: sv.Detections,
+    players_team_id: np.ndarray,
+    goalkeepers: sv.Detections,
+    goalkeepers_team_id: np.ndarray,
+    referees: sv.Detections,
+) -> np.ndarray:
+    """
+    A single frame's team-classification prediction is noisy (motion blur,
+    odd pose); smooth it by voting across every frame a tracker has been
+    seen, so a player's on-screen color doesn't flicker between the two
+    teams frame to frame. `team_votes` is a `defaultdict(Counter)` the
+    caller keeps alive across the whole video.
+    """
+    lookup = []
+    for tracker_id, team_id in zip(players.tracker_id, players_team_id):
+        votes = team_votes[tracker_id]
+        votes[int(team_id)] += 1
+        lookup.append(votes.most_common(1)[0][0])
+    for tracker_id, team_id in zip(goalkeepers.tracker_id, goalkeepers_team_id):
+        votes = team_votes[tracker_id]
+        votes[int(team_id)] += 1
+        lookup.append(votes.most_common(1)[0][0])
+    lookup += [REFEREE_CLASS_ID] * len(referees)
+    return np.array(lookup)
 
 
 def render_radar(
@@ -271,7 +304,8 @@ def run_player_tracking(
     player_detection_model = YOLO(PLAYER_DETECTION_MODEL_PATH).to(device=device)
     frame_generator = sv.get_video_frames_generator(
         source_path=source_video_path, stride=stride)
-    tracker = sv.ByteTrack(minimum_consecutive_frames=3)
+    tracker = sv.ByteTrack(
+        minimum_consecutive_frames=3, lost_track_buffer=LOST_TRACK_BUFFER)
     for frame in frame_generator:
         result = player_detection_model(frame, imgsz=1280, verbose=False)[0]
         detections = sv.Detections.from_ultralytics(result)
@@ -317,7 +351,9 @@ def run_team_classification(
 
     frame_generator = sv.get_video_frames_generator(
         source_path=source_video_path, stride=stride)
-    tracker = sv.ByteTrack(minimum_consecutive_frames=3)
+    tracker = sv.ByteTrack(
+        minimum_consecutive_frames=3, lost_track_buffer=LOST_TRACK_BUFFER)
+    team_votes: dict = defaultdict(Counter)
     for frame in frame_generator:
         result = player_detection_model(frame, imgsz=1280, verbose=False)[0]
         detections = sv.Detections.from_ultralytics(result)
@@ -334,11 +370,9 @@ def run_team_classification(
         referees = detections[detections.class_id == REFEREE_CLASS_ID]
 
         detections = sv.Detections.merge([players, goalkeepers, referees])
-        color_lookup = np.array(
-                players_team_id.tolist() +
-                goalkeepers_team_id.tolist() +
-                [REFEREE_CLASS_ID] * len(referees)
-        )
+        color_lookup = smoothed_color_lookup(
+            team_votes, players, players_team_id, goalkeepers,
+            goalkeepers_team_id, referees)
         labels = [str(tracker_id) for tracker_id in (detections.tracker_id
                                                        if detections.tracker_id is not None else [])]
 
@@ -382,7 +416,9 @@ def run_radar(
 
     frame_generator = sv.get_video_frames_generator(
         source_path=source_video_path, stride=stride)
-    tracker = sv.ByteTrack(minimum_consecutive_frames=3)
+    tracker = sv.ByteTrack(
+        minimum_consecutive_frames=3, lost_track_buffer=LOST_TRACK_BUFFER)
+    team_votes: dict = defaultdict(Counter)
     for frame in frame_generator:
         result = pitch_detection_model(frame, verbose=False)[0]
         keypoints = sv.KeyPoints.from_ultralytics(result)
@@ -401,11 +437,9 @@ def run_radar(
         referees = detections[detections.class_id == REFEREE_CLASS_ID]
 
         detections = sv.Detections.merge([players, goalkeepers, referees])
-        color_lookup = np.array(
-            players_team_id.tolist() +
-            goalkeepers_team_id.tolist() +
-            [REFEREE_CLASS_ID] * len(referees)
-        )
+        color_lookup = smoothed_color_lookup(
+            team_votes, players, players_team_id, goalkeepers,
+            goalkeepers_team_id, referees)
         labels = [str(tracker_id) for tracker_id in (detections.tracker_id
                                                        if detections.tracker_id is not None else [])]
 
