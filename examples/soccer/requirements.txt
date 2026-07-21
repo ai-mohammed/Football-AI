@@ -1,2 +1,5 @@
 ultralytics
 gdown
+streamlit
+inference  # optional, only needed for the hosted Roboflow API mode in streamlit_app.py
+easyocr    # optional, only needed for jersey number reading in the "Analyse par joueur" mode

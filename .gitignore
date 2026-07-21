@@ -153,3 +153,6 @@ Desktop.ini
 *~
 .directory
 .Trash-*
+
+# Claude Code local tooling config
+.claude/

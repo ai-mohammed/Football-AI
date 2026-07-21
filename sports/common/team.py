@@ -59,22 +59,29 @@ class TeamClassifier:
         self.reducer = umap.UMAP(n_components=3)
         self.cluster_model = KMeans(n_clusters=2)
 
-    def extract_features(self, crops: List[np.ndarray]) -> np.ndarray:
+    def extract_features(
+        self, crops: List[np.ndarray], verbose: bool = True
+    ) -> np.ndarray:
         """
         Extract features from a list of image crops using the pre-trained
             SiglipVisionModel.
 
         Args:
             crops (List[np.ndarray]): List of image crops.
+            verbose (bool): Whether to show a progress bar. Useful to disable
+                when calling this once per video frame (e.g. from `predict`),
+                where a per-batch progress bar is just noise.
 
         Returns:
             np.ndarray: Extracted features as a numpy array.
         """
         crops = [sv.cv2_to_pillow(crop) for crop in crops]
         batches = create_batches(crops, self.batch_size)
+        if verbose:
+            batches = tqdm(batches, desc='Embedding extraction')
         data = []
         with torch.no_grad():
-            for batch in tqdm(batches, desc='Embedding extraction'):
+            for batch in batches:
                 inputs = self.processor(
                     images=batch, return_tensors="pt").to(self.device)
                 outputs = self.features_model(**inputs)
@@ -107,6 +114,6 @@ class TeamClassifier:
         if len(crops) == 0:
             return np.array([])
 
-        data = self.extract_features(crops)
+        data = self.extract_features(crops, verbose=False)
         projections = self.reducer.transform(data)
         return self.cluster_model.predict(projections)

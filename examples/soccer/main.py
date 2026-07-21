@@ -158,19 +158,24 @@ def render_radar(
     return radar
 
 
-def run_pitch_detection(source_video_path: str, device: str) -> Iterator[np.ndarray]:
+def run_pitch_detection(
+    source_video_path: str, device: str, stride: int = 1
+) -> Iterator[np.ndarray]:
     """
     Run pitch detection on a video and yield annotated frames.
 
     Args:
         source_video_path (str): Path to the source video.
         device (str): Device to run the model on (e.g., 'cpu', 'cuda').
+        stride (int): Process every `stride`-th frame. Useful to speed up
+            processing on modest hardware.
 
     Yields:
         Iterator[np.ndarray]: Iterator over annotated frames.
     """
     pitch_detection_model = YOLO(PITCH_DETECTION_MODEL_PATH).to(device=device)
-    frame_generator = sv.get_video_frames_generator(source_path=source_video_path)
+    frame_generator = sv.get_video_frames_generator(
+        source_path=source_video_path, stride=stride)
     for frame in frame_generator:
         result = pitch_detection_model(frame, verbose=False)[0]
         keypoints = sv.KeyPoints.from_ultralytics(result)
@@ -181,19 +186,24 @@ def run_pitch_detection(source_video_path: str, device: str) -> Iterator[np.ndar
         yield annotated_frame
 
 
-def run_player_detection(source_video_path: str, device: str) -> Iterator[np.ndarray]:
+def run_player_detection(
+    source_video_path: str, device: str, stride: int = 1
+) -> Iterator[np.ndarray]:
     """
     Run player detection on a video and yield annotated frames.
 
     Args:
         source_video_path (str): Path to the source video.
         device (str): Device to run the model on (e.g., 'cpu', 'cuda').
+        stride (int): Process every `stride`-th frame. Useful to speed up
+            processing on modest hardware.
 
     Yields:
         Iterator[np.ndarray]: Iterator over annotated frames.
     """
     player_detection_model = YOLO(PLAYER_DETECTION_MODEL_PATH).to(device=device)
-    frame_generator = sv.get_video_frames_generator(source_path=source_video_path)
+    frame_generator = sv.get_video_frames_generator(
+        source_path=source_video_path, stride=stride)
     for frame in frame_generator:
         result = player_detection_model(frame, imgsz=1280, verbose=False)[0]
         detections = sv.Detections.from_ultralytics(result)
@@ -204,19 +214,24 @@ def run_player_detection(source_video_path: str, device: str) -> Iterator[np.nda
         yield annotated_frame
 
 
-def run_ball_detection(source_video_path: str, device: str) -> Iterator[np.ndarray]:
+def run_ball_detection(
+    source_video_path: str, device: str, stride: int = 1
+) -> Iterator[np.ndarray]:
     """
     Run ball detection on a video and yield annotated frames.
 
     Args:
         source_video_path (str): Path to the source video.
         device (str): Device to run the model on (e.g., 'cpu', 'cuda').
+        stride (int): Process every `stride`-th frame. Useful to speed up
+            processing on modest hardware.
 
     Yields:
         Iterator[np.ndarray]: Iterator over annotated frames.
     """
     ball_detection_model = YOLO(BALL_DETECTION_MODEL_PATH).to(device=device)
-    frame_generator = sv.get_video_frames_generator(source_path=source_video_path)
+    frame_generator = sv.get_video_frames_generator(
+        source_path=source_video_path, stride=stride)
     ball_tracker = BallTracker(buffer_size=20)
     ball_annotator = BallAnnotator(radius=6, buffer_size=10)
 
@@ -226,7 +241,7 @@ def run_ball_detection(source_video_path: str, device: str) -> Iterator[np.ndarr
 
     slicer = sv.InferenceSlicer(
         callback=callback,
-        overlap_filter_strategy=sv.OverlapFilter.NONE,
+        overlap_filter=sv.OverlapFilter.NONE,
         slice_wh=(640, 640),
     )
 
@@ -238,26 +253,32 @@ def run_ball_detection(source_video_path: str, device: str) -> Iterator[np.ndarr
         yield annotated_frame
 
 
-def run_player_tracking(source_video_path: str, device: str) -> Iterator[np.ndarray]:
+def run_player_tracking(
+    source_video_path: str, device: str, stride: int = 1
+) -> Iterator[np.ndarray]:
     """
     Run player tracking on a video and yield annotated frames with tracked players.
 
     Args:
         source_video_path (str): Path to the source video.
         device (str): Device to run the model on (e.g., 'cpu', 'cuda').
+        stride (int): Process every `stride`-th frame. Useful to speed up
+            processing on modest hardware.
 
     Yields:
         Iterator[np.ndarray]: Iterator over annotated frames.
     """
     player_detection_model = YOLO(PLAYER_DETECTION_MODEL_PATH).to(device=device)
-    frame_generator = sv.get_video_frames_generator(source_path=source_video_path)
+    frame_generator = sv.get_video_frames_generator(
+        source_path=source_video_path, stride=stride)
     tracker = sv.ByteTrack(minimum_consecutive_frames=3)
     for frame in frame_generator:
         result = player_detection_model(frame, imgsz=1280, verbose=False)[0]
         detections = sv.Detections.from_ultralytics(result)
         detections = tracker.update_with_detections(detections)
 
-        labels = [str(tracker_id) for tracker_id in detections.tracker_id]
+        labels = [str(tracker_id) for tracker_id in (detections.tracker_id
+                                                       if detections.tracker_id is not None else [])]
 
         annotated_frame = frame.copy()
         annotated_frame = ELLIPSE_ANNOTATOR.annotate(annotated_frame, detections)
@@ -266,23 +287,27 @@ def run_player_tracking(source_video_path: str, device: str) -> Iterator[np.ndar
         yield annotated_frame
 
 
-def run_team_classification(source_video_path: str, device: str) -> Iterator[np.ndarray]:
+def run_team_classification(
+    source_video_path: str, device: str, stride: int = 1
+) -> Iterator[np.ndarray]:
     """
     Run team classification on a video and yield annotated frames with team colors.
 
     Args:
         source_video_path (str): Path to the source video.
         device (str): Device to run the model on (e.g., 'cpu', 'cuda').
+        stride (int): Process every `stride`-th frame. Useful to speed up
+            processing on modest hardware.
 
     Yields:
         Iterator[np.ndarray]: Iterator over annotated frames.
     """
     player_detection_model = YOLO(PLAYER_DETECTION_MODEL_PATH).to(device=device)
-    frame_generator = sv.get_video_frames_generator(
+    crop_generator = sv.get_video_frames_generator(
         source_path=source_video_path, stride=STRIDE)
 
     crops = []
-    for frame in tqdm(frame_generator, desc='collecting crops'):
+    for frame in tqdm(crop_generator, desc='collecting crops'):
         result = player_detection_model(frame, imgsz=1280, verbose=False)[0]
         detections = sv.Detections.from_ultralytics(result)
         crops += get_crops(frame, detections[detections.class_id == PLAYER_CLASS_ID])
@@ -290,7 +315,8 @@ def run_team_classification(source_video_path: str, device: str) -> Iterator[np.
     team_classifier = TeamClassifier(device=device)
     team_classifier.fit(crops)
 
-    frame_generator = sv.get_video_frames_generator(source_path=source_video_path)
+    frame_generator = sv.get_video_frames_generator(
+        source_path=source_video_path, stride=stride)
     tracker = sv.ByteTrack(minimum_consecutive_frames=3)
     for frame in frame_generator:
         result = player_detection_model(frame, imgsz=1280, verbose=False)[0]
@@ -313,7 +339,8 @@ def run_team_classification(source_video_path: str, device: str) -> Iterator[np.
                 goalkeepers_team_id.tolist() +
                 [REFEREE_CLASS_ID] * len(referees)
         )
-        labels = [str(tracker_id) for tracker_id in detections.tracker_id]
+        labels = [str(tracker_id) for tracker_id in (detections.tracker_id
+                                                       if detections.tracker_id is not None else [])]
 
         annotated_frame = frame.copy()
         annotated_frame = ELLIPSE_ANNOTATOR.annotate(
@@ -323,14 +350,29 @@ def run_team_classification(source_video_path: str, device: str) -> Iterator[np.
         yield annotated_frame
 
 
-def run_radar(source_video_path: str, device: str) -> Iterator[np.ndarray]:
+def run_radar(
+    source_video_path: str, device: str, stride: int = 1
+) -> Iterator[np.ndarray]:
+    """
+    Run the full radar pipeline (pitch detection, player detection, tracking, and
+    team classification) on a video and yield annotated frames with a radar overlay.
+
+    Args:
+        source_video_path (str): Path to the source video.
+        device (str): Device to run the model on (e.g., 'cpu', 'cuda').
+        stride (int): Process every `stride`-th frame. Useful to speed up
+            processing on modest hardware.
+
+    Yields:
+        Iterator[np.ndarray]: Iterator over annotated frames.
+    """
     player_detection_model = YOLO(PLAYER_DETECTION_MODEL_PATH).to(device=device)
     pitch_detection_model = YOLO(PITCH_DETECTION_MODEL_PATH).to(device=device)
-    frame_generator = sv.get_video_frames_generator(
+    crop_generator = sv.get_video_frames_generator(
         source_path=source_video_path, stride=STRIDE)
 
     crops = []
-    for frame in tqdm(frame_generator, desc='collecting crops'):
+    for frame in tqdm(crop_generator, desc='collecting crops'):
         result = player_detection_model(frame, imgsz=1280, verbose=False)[0]
         detections = sv.Detections.from_ultralytics(result)
         crops += get_crops(frame, detections[detections.class_id == PLAYER_CLASS_ID])
@@ -338,7 +380,8 @@ def run_radar(source_video_path: str, device: str) -> Iterator[np.ndarray]:
     team_classifier = TeamClassifier(device=device)
     team_classifier.fit(crops)
 
-    frame_generator = sv.get_video_frames_generator(source_path=source_video_path)
+    frame_generator = sv.get_video_frames_generator(
+        source_path=source_video_path, stride=stride)
     tracker = sv.ByteTrack(minimum_consecutive_frames=3)
     for frame in frame_generator:
         result = pitch_detection_model(frame, verbose=False)[0]
@@ -363,7 +406,8 @@ def run_radar(source_video_path: str, device: str) -> Iterator[np.ndarray]:
             goalkeepers_team_id.tolist() +
             [REFEREE_CLASS_ID] * len(referees)
         )
-        labels = [str(tracker_id) for tracker_id in detections.tracker_id]
+        labels = [str(tracker_id) for tracker_id in (detections.tracker_id
+                                                       if detections.tracker_id is not None else [])]
 
         annotated_frame = frame.copy()
         annotated_frame = ELLIPSE_ANNOTATOR.annotate(
@@ -386,25 +430,31 @@ def run_radar(source_video_path: str, device: str) -> Iterator[np.ndarray]:
         yield annotated_frame
 
 
-def main(source_video_path: str, target_video_path: str, device: str, mode: Mode) -> None:
+def main(
+    source_video_path: str,
+    target_video_path: str,
+    device: str,
+    mode: Mode,
+    stride: int = 1
+) -> None:
     if mode == Mode.PITCH_DETECTION:
         frame_generator = run_pitch_detection(
-            source_video_path=source_video_path, device=device)
+            source_video_path=source_video_path, device=device, stride=stride)
     elif mode == Mode.PLAYER_DETECTION:
         frame_generator = run_player_detection(
-            source_video_path=source_video_path, device=device)
+            source_video_path=source_video_path, device=device, stride=stride)
     elif mode == Mode.BALL_DETECTION:
         frame_generator = run_ball_detection(
-            source_video_path=source_video_path, device=device)
+            source_video_path=source_video_path, device=device, stride=stride)
     elif mode == Mode.PLAYER_TRACKING:
         frame_generator = run_player_tracking(
-            source_video_path=source_video_path, device=device)
+            source_video_path=source_video_path, device=device, stride=stride)
     elif mode == Mode.TEAM_CLASSIFICATION:
         frame_generator = run_team_classification(
-            source_video_path=source_video_path, device=device)
+            source_video_path=source_video_path, device=device, stride=stride)
     elif mode == Mode.RADAR:
         frame_generator = run_radar(
-            source_video_path=source_video_path, device=device)
+            source_video_path=source_video_path, device=device, stride=stride)
     else:
         raise NotImplementedError(f"Mode {mode} is not implemented.")
 
@@ -425,10 +475,12 @@ if __name__ == '__main__':
     parser.add_argument('--target_video_path', type=str, required=True)
     parser.add_argument('--device', type=str, default='cpu')
     parser.add_argument('--mode', type=Mode, default=Mode.PLAYER_DETECTION)
+    parser.add_argument('--stride', type=int, default=1)
     args = parser.parse_args()
     main(
         source_video_path=args.source_video_path,
         target_video_path=args.target_video_path,
         device=args.device,
-        mode=args.mode
+        mode=args.mode,
+        stride=args.stride
     )

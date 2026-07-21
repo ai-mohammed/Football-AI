@@ -225,6 +225,69 @@ def draw_paths_on_pitch(
         return pitch
 
 
+def draw_pitch_heatmap(
+    config: SoccerPitchConfiguration,
+    xy: np.ndarray,
+    radius: int = 18,
+    opacity: float = 0.7,
+    colormap: int = cv2.COLORMAP_JET,
+    padding: int = 50,
+    scale: float = 0.1,
+    pitch: Optional[np.ndarray] = None
+) -> np.ndarray:
+    """
+    Draws a density heatmap of the given points on a soccer pitch. Useful for
+    visualizing where a player (or a group of players) spent most of their time.
+
+    Args:
+        config (SoccerPitchConfiguration): Configuration object containing the
+            dimensions and layout of the pitch.
+        xy (np.ndarray): Array of (x, y) pitch-space points to accumulate into the
+            heatmap, in the same coordinate system as `config.vertices`.
+        radius (int, optional): Spread (in pixels, pre-scale) of each point's
+            contribution to the heatmap. Defaults to 18.
+        opacity (float, optional): Opacity of the heatmap overlay where density is
+            highest. Defaults to 0.7.
+        colormap (int, optional): OpenCV colormap used to render density.
+            Defaults to cv2.COLORMAP_JET.
+        padding (int, optional): Padding around the pitch in pixels.
+            Defaults to 50.
+        scale (float, optional): Scaling factor for the pitch dimensions.
+            Defaults to 0.1.
+        pitch (Optional[np.ndarray], optional): Existing pitch image to draw the
+            heatmap on. If None, a new pitch will be created. Defaults to None.
+
+    Returns:
+        np.ndarray: Image of the soccer pitch with the heatmap overlay.
+    """
+    if pitch is None:
+        pitch = draw_pitch(config=config, padding=padding, scale=scale)
+
+    scaled_width = int(config.width * scale)
+    scaled_length = int(config.length * scale)
+    density = np.zeros((scaled_width + 2 * padding, scaled_length + 2 * padding), dtype=np.float32)
+
+    for point in xy:
+        cx = int(point[0] * scale) + padding
+        cy = int(point[1] * scale) + padding
+        if 0 <= cx < density.shape[1] and 0 <= cy < density.shape[0]:
+            cv2.circle(density, (cx, cy), radius, 1.0, thickness=-1)
+
+    if density.max() == 0:
+        return pitch.copy()
+
+    density = cv2.GaussianBlur(density, (0, 0), sigmaX=radius / 2)
+    density = density / density.max()
+
+    density_u8 = (density * 255).astype(np.uint8)
+    density_color = cv2.applyColorMap(density_u8, colormap)
+
+    alpha = (density * opacity)[..., None]
+    blended = (density_color.astype(np.float32) * alpha +
+               pitch.astype(np.float32) * (1 - alpha))
+    return blended.astype(np.uint8)
+
+
 def draw_pitch_voronoi_diagram(
     config: SoccerPitchConfiguration,
     team_1_xy: np.ndarray,

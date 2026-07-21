@@ -1,0 +1,19 @@
+# Model weights and sample videos downloaded by setup.sh / streamlit_app.py / gdown
+data/
+*.pt
+*.mp4
+*.avi
+*.mov
+*.mkv
+
+# Local virtual environments some notebooks were run from
+.venv/
+venv/
+myenv/
+rf-env/
+
+# Ultralytics training outputs and Roboflow dataset exports pulled in ad hoc
+notebooks/runs/
+notebooks/football-ball-detection-*/
+notebooks/football-field-detection-*/
+notebooks/output.txt

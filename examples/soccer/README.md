@@ -110,6 +110,58 @@ on the field.
 
   https://github.com/user-attachments/assets/263b4cd0-2185-4ed3-9be2-cf4d8f5bfa67
 
+## 🎥 streamlit app (temps réel)
+
+Une interface Streamlit permet d'uploader une vidéo et de visualiser l'analyse
+s'afficher image par image pendant le traitement : détection, tracking,
+classification d'équipes, radar tactique, et une **analyse par joueur**
+(numéros de maillot via OCR, touches de balle, passes, cartographie du
+terrain) — avec export de la vidéo annotée à la fin.
+
+### Lancer en local
+
+```bash
+# depuis la racine du repo (important : c'est là que vit .streamlit/config.toml)
+pip install git+https://github.com/roboflow/sports.git
+cd examples/soccer && pip install -r requirements.txt && cd ../..
+streamlit run examples/soccer/streamlit_app.py
+```
+
+Les modèles locaux (`data/*.pt`) sont téléchargés automatiquement au premier
+lancement d'un mode (~130 Mo chacun, mis en cache ensuite) — `./setup.sh`
+reste une alternative si tu préfères tout précharger d'un coup (il télécharge
+aussi des vidéos d'exemple).
+
+Un mode "API Roboflow hébergée" est disponible pour la
+détection/tracking/classification joueurs sans téléchargement de poids : dans
+ce cas, définis ta clé dans la variable d'environnement `ROBOFLOW_API_KEY` (ou
+dans `.streamlit/secrets.toml` sous la clé `ROBOFLOW_API_KEY`) plutôt que de
+la coder en dur.
+
+Le mode **Analyse par joueur** ne s'affiche que si un GPU CUDA est détecté
+(sinon il est impraticable — voir plus bas) ; force-le sur CPU avec
+`FORCE_ENABLE_PLAYER_ANALYSIS=1` si tu veux quand même l'essayer.
+
+### Déployer sur Streamlit Community Cloud
+
+1. Pousse ce repo (ou ton fork) sur GitHub.
+2. Sur [share.streamlit.io](https://share.streamlit.io), crée une nouvelle
+   app en pointant vers ton repo, avec comme "Main file path" :
+   `examples/soccer/streamlit_app.py`.
+3. Dans les "Secrets" de l'app, ajoute `ROBOFLOW_API_KEY` si tu veux proposer
+   le mode API hébergée.
+4. Le thème (`.streamlit/config.toml`), les dépendances
+   (`examples/soccer/requirements.txt`) et les paquets système nécessaires à
+   OpenCV (`examples/soccer/packages.txt`) sont déjà configurés.
+
+Community Cloud ne fournit pas de GPU : le mode **Analyse par joueur** y est
+automatiquement masqué (voir ci-dessus), et les autres modes tournent sur CPU
+— augmente le "stride" dans la barre latérale et privilégie des extraits
+courts.
+
+Le paramètre "traiter 1 frame sur N" dans la barre latérale permet d'ajuster
+la vitesse de traitement en fonction de ton matériel.
+
 ## 🗺️ roadmap
 
 - [ ] Add smoothing to eliminate flickering in RADAR mode.
