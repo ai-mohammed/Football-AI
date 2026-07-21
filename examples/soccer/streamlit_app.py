@@ -116,6 +116,18 @@ def detect_device() -> str:
     return "cpu"
 
 
+def available_devices() -> list:
+    """Devices actually usable on this machine — offering "cuda"/"mps" when
+    there's no such hardware just lets users pick an option that's guaranteed
+    to crash with a raw PyTorch error."""
+    devices = ["cpu"]
+    if torch.cuda.is_available():
+        devices.append("cuda")
+    if getattr(torch.backends, "mps", None) is not None and torch.backends.mps.is_available():
+        devices.append("mps")
+    return devices
+
+
 def heavy_mode_available(device: str) -> bool:
     """
     The per-player analysis mode runs 3 models + tracking + OCR per frame,
@@ -315,6 +327,7 @@ st.set_page_config(
 )
 
 DETECTED_DEVICE = detect_device()
+AVAILABLE_DEVICES = available_devices()
 HEAVY_MODE_ENABLED = heavy_mode_available(DETECTED_DEVICE)
 
 MODES = BASE_MODES + ([PLAYER_ANALYSIS_MODE] if HEAVY_MODE_ENABLED else [])
@@ -428,10 +441,11 @@ with st.sidebar:
 
     with st.expander("🚀 Performance", expanded=False):
         device = st.selectbox(
-            "Device", ["cpu", "cuda", "mps"],
-            index=["cpu", "cuda", "mps"].index(DETECTED_DEVICE),
+            "Device", AVAILABLE_DEVICES,
+            index=AVAILABLE_DEVICES.index(DETECTED_DEVICE),
             format_func=lambda d: DEVICE_LABELS.get(d, d),
-            help="Détecté automatiquement, modifiable si besoin.",
+            help="Seuls les devices réellement disponibles sur cette machine "
+                 "sont proposés.",
         )
         stride = st.slider(
             "Traiter 1 frame sur N", 1, 10, 2 if device == "cpu" else 1,
