@@ -124,6 +124,9 @@ class PlayerMatchAnalyzer:
         self._ocr_reader = None
         self.stats: Dict[int, _TrackerStats] = defaultdict(_TrackerStats)
         self.current_possessor: Optional[int] = None
+        # (from_tracker_id, to_tracker_id) -> number of passes exchanged.
+        self.pass_edges: Counter = Counter()
+        self.seconds_per_processed_frame: float = 0.0
 
         self.ball_annotator = BallAnnotator(radius=6, buffer_size=10)
 
@@ -139,6 +142,7 @@ class PlayerMatchAnalyzer:
         video_info = sv.VideoInfo.from_video_path(source_video_path)
         fps = video_info.fps or 25
         seconds_per_processed_frame = stride / fps
+        self.seconds_per_processed_frame = seconds_per_processed_frame
 
         crop_generator = sv.get_video_frames_generator(
             source_path=source_video_path, stride=STRIDE)
@@ -270,6 +274,7 @@ class PlayerMatchAnalyzer:
             if prev_stat.team_id == team_id and self.current_possessor != tracker_id:
                 prev_stat.passes_made += 1
                 stat.passes_received += 1
+                self.pass_edges[(self.current_possessor, tracker_id)] += 1
 
         self.current_possessor = tracker_id
 
@@ -356,7 +361,70 @@ class PlayerMatchAnalyzer:
                 'distance_m': round(stat.distance_cm / 100, 1),
                 'trajectory': np.array(stat.trajectory) if stat.trajectory else np.empty((0, 2)),
             })
-        return _merge_by_jersey_number(players)
+        merged = _merge_by_jersey_number(players)
+        for row in merged:
+            seconds = len(row['trajectory']) * self.seconds_per_processed_frame
+            row['avg_speed_kmh'] = (
+                round((row['distance_m'] / seconds) * 3.6, 1) if seconds > 0 else 0.0)
+        return merged
+
+    def team_report(self) -> dict:
+        """
+        Aggregates `report()` into team-level stats: possession share, a
+        combined heatmap of pitch coverage, and a pass network (nodes at each
+        player's average position, edges weighted by passes exchanged).
+        """
+        players = self.report()
+        teams: Dict[int, List[dict]] = defaultdict(list)
+        for row in players:
+            if row['team_id'] in (0, 1):
+                teams[row['team_id']].append(row)
+
+        total_touches = sum(row['touches'] for row in players if row['team_id'] in (0, 1))
+
+        possession_pct = {}
+        team_heatmaps = {}
+        pass_networks = {}
+        for team_id in (0, 1):
+            rows = teams.get(team_id, [])
+            team_touches = sum(row['touches'] for row in rows)
+            possession_pct[team_id] = (
+                round(team_touches / total_touches * 100, 1) if total_touches else 0.0)
+
+            trajectories = [row['trajectory'] for row in rows if row['trajectory'].size]
+            team_heatmaps[team_id] = (
+                np.vstack(trajectories) if trajectories else np.empty((0, 2)))
+
+            tracker_to_node: Dict[int, int] = {}
+            node_xy, node_labels = [], []
+            for idx, row in enumerate(rows):
+                for tid in row['tracker_ids']:
+                    tracker_to_node[tid] = idx
+                node_xy.append(
+                    row['trajectory'].mean(axis=0) if row['trajectory'].size
+                    else np.array([CONFIG.length / 2, CONFIG.width / 2]))
+                node_labels.append(
+                    f"#{row['jersey_number']}" if row['jersey_number']
+                    else f"ID{row['tracker_ids'][0]}")
+
+            edge_counts: Counter = Counter()
+            for (from_id, to_id), weight in self.pass_edges.items():
+                i, j = tracker_to_node.get(from_id), tracker_to_node.get(to_id)
+                if i is None or j is None or i == j:
+                    continue
+                edge_counts[(i, j)] += weight
+
+            pass_networks[team_id] = {
+                'node_xy': np.array(node_xy) if node_xy else np.empty((0, 2)),
+                'node_labels': node_labels,
+                'edges': [(i, j, w) for (i, j), w in edge_counts.items()],
+            }
+
+        return {
+            'possession_pct': possession_pct,
+            'team_heatmaps': team_heatmaps,
+            'pass_networks': pass_networks,
+        }
 
 
 def _merge_by_jersey_number(players: List[dict]) -> List[dict]:

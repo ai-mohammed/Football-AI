@@ -1,4 +1,4 @@
-from typing import Optional, List
+from typing import Optional, List, Tuple
 
 import cv2
 import supervision as sv
@@ -286,6 +286,99 @@ def draw_pitch_heatmap(
     blended = (density_color.astype(np.float32) * alpha +
                pitch.astype(np.float32) * (1 - alpha))
     return blended.astype(np.uint8)
+
+
+def draw_pass_network(
+    config: SoccerPitchConfiguration,
+    node_xy: np.ndarray,
+    node_labels: List[str],
+    edges: List[Tuple[int, int, int]],
+    node_color: sv.Color = sv.Color.RED,
+    edge_color: sv.Color = sv.Color.WHITE,
+    text_color: sv.Color = sv.Color.WHITE,
+    node_radius: int = 16,
+    min_edge_thickness: int = 1,
+    max_edge_thickness: int = 10,
+    padding: int = 50,
+    scale: float = 0.1,
+    pitch: Optional[np.ndarray] = None
+) -> np.ndarray:
+    """
+    Draws a pass network: one node per player, placed at their average pitch
+    position, connected by edges whose thickness reflects how many passes
+    were exchanged between that pair.
+
+    Args:
+        config (SoccerPitchConfiguration): Configuration object containing the
+            dimensions and layout of the pitch.
+        node_xy (np.ndarray): Array of (x, y) pitch-space positions, one per
+            player, in the same coordinate system as `config.vertices`.
+        node_labels (List[str]): Label drawn on each node (e.g. jersey number).
+        edges (List[Tuple[int, int, int]]): List of (i, j, weight) triples,
+            where i/j index into `node_xy`/`node_labels` and weight is the
+            number of passes exchanged between that pair.
+        node_color (sv.Color, optional): Fill color of the nodes.
+            Defaults to sv.Color.RED.
+        edge_color (sv.Color, optional): Color of the edges.
+            Defaults to sv.Color.WHITE.
+        text_color (sv.Color, optional): Color of the node labels.
+            Defaults to sv.Color.WHITE.
+        node_radius (int, optional): Radius of each node in pixels.
+            Defaults to 16.
+        min_edge_thickness (int, optional): Thickness of the lightest edge.
+            Defaults to 1.
+        max_edge_thickness (int, optional): Thickness of the heaviest edge.
+            Defaults to 10.
+        padding (int, optional): Padding around the pitch in pixels.
+            Defaults to 50.
+        scale (float, optional): Scaling factor for the pitch dimensions.
+            Defaults to 0.1.
+        pitch (Optional[np.ndarray], optional): Existing pitch image to draw
+            the network on. If None, a new pitch will be created.
+            Defaults to None.
+
+    Returns:
+        np.ndarray: Image of the soccer pitch with the pass network overlay.
+    """
+    if pitch is None:
+        pitch = draw_pitch(config=config, padding=padding, scale=scale)
+
+    def to_px(point):
+        return (int(point[0] * scale) + padding, int(point[1] * scale) + padding)
+
+    if edges:
+        max_weight = max(weight for _, _, weight in edges)
+        for i, j, weight in edges:
+            if i >= len(node_xy) or j >= len(node_xy):
+                continue
+            thickness = max(
+                min_edge_thickness,
+                int(weight / max_weight * max_edge_thickness)
+            )
+            cv2.line(
+                img=pitch,
+                pt1=to_px(node_xy[i]),
+                pt2=to_px(node_xy[j]),
+                color=edge_color.as_bgr(),
+                thickness=thickness,
+                lineType=cv2.LINE_AA,
+            )
+
+    for idx, point in enumerate(node_xy):
+        center = to_px(point)
+        cv2.circle(pitch, center, node_radius, node_color.as_bgr(), thickness=-1)
+        cv2.circle(pitch, center, node_radius, sv.Color.BLACK.as_bgr(), thickness=2)
+        label = node_labels[idx] if idx < len(node_labels) else ""
+        if label:
+            (text_w, text_h), _ = cv2.getTextSize(
+                label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
+            text_org = (center[0] - text_w // 2, center[1] + text_h // 2)
+            cv2.putText(
+                pitch, label, text_org, cv2.FONT_HERSHEY_SIMPLEX, 0.5,
+                text_color.as_bgr(), 1, cv2.LINE_AA,
+            )
+
+    return pitch
 
 
 def draw_pitch_voronoi_diagram(

@@ -52,7 +52,7 @@ from main import (  # noqa: E402
     run_radar,
     run_team_classification,
 )
-from sports.annotators.soccer import draw_pitch_heatmap  # noqa: E402
+from sports.annotators.soccer import draw_pass_network, draw_pitch_heatmap  # noqa: E402
 from sports.common.team import TeamClassifier  # noqa: E402
 from player_analysis import (  # noqa: E402
     CONFIG as PITCH_CONFIG,
@@ -595,10 +595,71 @@ if start and uploaded_file is not None:
 
     if analyzer is not None:
         st.session_state['player_report'] = analyzer.report()
+        st.session_state['team_report'] = analyzer.team_report()
     else:
         st.session_state.pop('player_report', None)
+        st.session_state.pop('team_report', None)
 elif uploaded_file is None:
     st.info("👆 Upload une vidéo de match pour commencer.")
+
+TEAM_NAMES = {0: "Équipe A", 1: "Équipe B"}
+TEAM_COLORS = {0: sv.Color.from_hex('#FF1493'), 1: sv.Color.from_hex('#00BFFF')}
+
+# --------------------------------------------------------------------------
+# Team dashboard (persists across reruns, e.g. switching the team selector,
+# without re-running the whole video pipeline)
+# --------------------------------------------------------------------------
+
+if st.session_state.get('team_report') is not None:
+    st.divider()
+    st.subheader("🏟️ Vue d'équipe")
+    team_report = st.session_state['team_report']
+
+    possession = team_report['possession_pct']
+    col_a, col_b = st.columns(2)
+    col_a.metric(f"Possession — {TEAM_NAMES[0]}", f"{possession.get(0, 0):.0f}%")
+    col_b.metric(f"Possession — {TEAM_NAMES[1]}", f"{possession.get(1, 0):.0f}%")
+    st.progress(possession.get(0, 0) / 100 if possession.get(0, 0) else 0.0)
+    st.caption(
+        "Possession estimée à partir du nombre de touches de balle par équipe "
+        "(heuristique, pas une mesure officielle de temps de possession)."
+    )
+
+    with st.container(border=True):
+        st.markdown("**Zones d'activité collectives**")
+        heat_col_a, heat_col_b = st.columns(2)
+        for col, team_id in ((heat_col_a, 0), (heat_col_b, 1)):
+            xy = team_report['team_heatmaps'].get(team_id, np.empty((0, 2)))
+            with col:
+                if len(xy):
+                    heatmap = draw_pitch_heatmap(PITCH_CONFIG, xy=xy)
+                    st.image(heatmap, channels="BGR", caption=TEAM_NAMES[team_id],
+                              use_container_width=True)
+                else:
+                    st.info(f"Pas assez de données pour {TEAM_NAMES[team_id]}.")
+
+    with st.container(border=True):
+        st.markdown("**Réseau de passes**")
+        network_team_id = st.radio(
+            "Équipe", [0, 1], format_func=lambda t: TEAM_NAMES[t],
+            horizontal=True, key="pass_network_team",
+        )
+        network = team_report['pass_networks'].get(
+            network_team_id, {'node_xy': np.empty((0, 2)), 'node_labels': [], 'edges': []})
+        if len(network['node_xy']) and network['edges']:
+            diagram = draw_pass_network(
+                PITCH_CONFIG,
+                node_xy=network['node_xy'],
+                node_labels=network['node_labels'],
+                edges=network['edges'],
+                node_color=TEAM_COLORS[network_team_id],
+            )
+            st.image(diagram, channels="BGR", use_container_width=True)
+        else:
+            st.info(
+                "Pas assez de passes détectées pour construire un réseau "
+                f"pour {TEAM_NAMES[network_team_id]}."
+            )
 
 # --------------------------------------------------------------------------
 # Player-by-player dashboard (persists across reruns, e.g. changing the
@@ -613,7 +674,6 @@ if st.session_state.get('player_report') is not None:
     if not report:
         st.info("Aucun joueur suffisamment suivi pour établir des statistiques.")
     else:
-        team_names = {0: "Équipe A", 1: "Équipe B"}
         rows = []
         row_labels = []
         for p in report:
@@ -621,11 +681,12 @@ if st.session_state.get('player_report') is not None:
             row_labels.append(label)
             rows.append({
                 "Joueur": label,
-                "Équipe": team_names.get(p['team_id'], "?"),
+                "Équipe": TEAM_NAMES.get(p['team_id'], "?"),
                 "Touches de balle": p['touches'],
                 "Passes faites": p['passes_made'],
                 "Passes reçues": p['passes_received'],
                 "Distance parcourue (m)": round(p['distance_m'], 1),
+                "Vitesse moyenne (km/h)": p.get('avg_speed_kmh', 0.0),
             })
 
         with st.container(border=True):
@@ -635,12 +696,14 @@ if st.session_state.get('player_report') is not None:
             selected_label = st.selectbox("Cartographie du joueur", row_labels)
             selected = report[row_labels.index(selected_label)]
 
-            col1, col2, col3 = st.columns(3)
+            col1, col2, col3, col4 = st.columns(4)
             col1.metric("Touches de balle", selected['touches'])
             col2.metric(
                 "Passes faites / reçues",
                 f"{selected['passes_made']} / {selected['passes_received']}")
             col3.metric("Distance parcourue", f"{selected['distance_m']:.1f} m")
+            col4.metric(
+                "Vitesse moyenne", f"{selected.get('avg_speed_kmh', 0.0):.1f} km/h")
 
             if len(selected['trajectory']):
                 heatmap = draw_pitch_heatmap(PITCH_CONFIG, xy=selected['trajectory'])
