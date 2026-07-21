@@ -17,7 +17,7 @@ import os
 import sys
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
-from typing import Dict, Iterator, List, Optional
+from typing import Dict, Iterator, List, Optional, Tuple
 
 import cv2
 import numpy as np
@@ -142,6 +142,17 @@ class PlayerMatchAnalyzer:
         self.pass_edges: Counter = Counter()
         self.seconds_per_processed_frame: float = 0.0
 
+        # A hard camera cut breaks ByteTrack's spatial/motion matching, so a
+        # player who was on screen before the cut gets a brand new tracker id
+        # after it — even though they never actually left the match. Once a
+        # tracker's jersey number is confidently read and it matches a number
+        # already confirmed for a *different* tracker on the same team, the
+        # new id is folded into the original one: identity_redirect maps the
+        # "loser" id to the surviving "winner" id, and every stats lookup
+        # resolves through it first.
+        self.identity_redirect: Dict[int, int] = {}
+        self.confirmed_jersey_owner: Dict[Tuple[int, str], int] = {}
+
         self.ball_annotator = BallAnnotator(radius=6, buffer_size=10)
 
     @property
@@ -245,8 +256,51 @@ class PlayerMatchAnalyzer:
             color_lookup = self._color_lookup_for(all_detections)
             yield self._annotate(frame, all_detections, color_lookup, ball_detections)
 
+    def _resolve(self, tracker_id: Optional[int]) -> Optional[int]:
+        """Follows identity_redirect to the canonical tracker id for a
+        player who was re-identified across a camera cut."""
+        if tracker_id is None:
+            return None
+        seen = set()
+        while tracker_id in self.identity_redirect and tracker_id not in seen:
+            seen.add(tracker_id)
+            tracker_id = self.identity_redirect[tracker_id]
+        return tracker_id
+
+    def _merge_tracker(self, loser: int, winner: int) -> None:
+        """Folds `loser`'s accumulated stats into `winner` — used when a
+        camera cut gave the same physical player a new tracker id, and we
+        recognized them again via a matching confirmed jersey number."""
+        if loser == winner:
+            return
+        loser_stat = self.stats.pop(loser, None)
+        self.identity_redirect[loser] = winner
+        if loser_stat is None:
+            return
+        winner_stat = self.stats[winner]
+        winner_stat.touches += loser_stat.touches
+        winner_stat.passes_made += loser_stat.passes_made
+        winner_stat.passes_received += loser_stat.passes_received
+        winner_stat.distance_cm += loser_stat.distance_cm
+        winner_stat.trajectory.extend(loser_stat.trajectory)
+        winner_stat.jersey_votes.update(loser_stat.jersey_votes)
+        winner_stat.team_votes.update(loser_stat.team_votes)
+        if winner_stat.team_votes:
+            winner_stat.team_id = winner_stat.team_votes.most_common(1)[0][0]
+
+        for (a, b), weight in list(self.pass_edges.items()):
+            resolved = (winner if a == loser else a, winner if b == loser else b)
+            if resolved != (a, b):
+                del self.pass_edges[(a, b)]
+                if resolved[0] != resolved[1]:
+                    self.pass_edges[resolved] += weight
+
+        if self.current_possessor == loser:
+            self.current_possessor = winner
+
     def _record_team_votes(self, pg_detections, pg_color_lookup):
-        for i, tracker_id in enumerate(pg_detections.tracker_id):
+        for i, raw_tracker_id in enumerate(pg_detections.tracker_id):
+            tracker_id = self._resolve(raw_tracker_id)
             if tracker_id is None:
                 continue
             stat = self.stats[tracker_id]
@@ -256,7 +310,8 @@ class PlayerMatchAnalyzer:
     def _color_lookup_for(self, detections) -> np.ndarray:
         lookup = []
         tracker_ids = detections.tracker_id if detections.tracker_id is not None else []
-        for tracker_id in tracker_ids:
+        for raw_tracker_id in tracker_ids:
+            tracker_id = self._resolve(raw_tracker_id)
             stat = self.stats.get(tracker_id) if tracker_id is not None else None
             lookup.append(
                 stat.team_id if stat is not None and stat.team_id is not None
@@ -267,12 +322,17 @@ class PlayerMatchAnalyzer:
         xy = transformer.transform_points(
             pg_detections.get_anchors_coordinates(sv.Position.BOTTOM_CENTER))
         max_delta_cm = MAX_PLAUSIBLE_SPEED_M_PER_S * 100 * seconds_per_frame
-        for i, tracker_id in enumerate(pg_detections.tracker_id):
+        for i, raw_tracker_id in enumerate(pg_detections.tracker_id):
+            tracker_id = self._resolve(raw_tracker_id)
             if tracker_id is None:
                 continue
             stat = self.stats[tracker_id]
             point = xy[i]
-            if stat.last_xy is not None:
+            # A merge can make the player's position "jump" from wherever
+            # the old id last was to wherever the new id picked them up
+            # (e.g. across a camera cut) — don't count that jump as
+            # covered distance.
+            if stat.last_xy is not None and raw_tracker_id == tracker_id:
                 delta_cm = float(np.linalg.norm(point - stat.last_xy))
                 if delta_cm <= max_delta_cm:
                     stat.distance_cm += delta_cm
@@ -294,7 +354,7 @@ class PlayerMatchAnalyzer:
         if distances[nearest_idx] > TOUCH_DISTANCE_CM:
             return
 
-        tracker_id = pg_detections.tracker_id[nearest_idx]
+        tracker_id = self._resolve(pg_detections.tracker_id[nearest_idx])
         if tracker_id is None or tracker_id == self.current_possessor:
             return
 
@@ -314,7 +374,8 @@ class PlayerMatchAnalyzer:
     def _sample_jersey_numbers(self, frame, pg_detections, frame_idx):
         if not ocr_available() or len(pg_detections) == 0:
             return
-        for i, tracker_id in enumerate(pg_detections.tracker_id):
+        for i, raw_tracker_id in enumerate(pg_detections.tracker_id):
+            tracker_id = self._resolve(raw_tracker_id)
             if tracker_id is None:
                 continue
             if frame_idx % JERSEY_OCR_EVERY_N_FRAMES != tracker_id % JERSEY_OCR_EVERY_N_FRAMES:
@@ -328,7 +389,24 @@ class PlayerMatchAnalyzer:
                 continue
             number = self._read_jersey_number(crop)
             if number:
-                self.stats[tracker_id].jersey_votes[number] += 1
+                self._register_jersey_read(tracker_id, number)
+
+    def _register_jersey_read(self, tracker_id: int, number: str) -> None:
+        stat = self.stats[tracker_id]
+        stat.jersey_votes[number] += 1
+        top_number, votes = stat.jersey_votes.most_common(1)[0]
+        if votes < MIN_OCR_READS_FOR_LABEL or stat.team_id is None:
+            return
+
+        key = (stat.team_id, top_number)
+        owner = self.confirmed_jersey_owner.get(key)
+        if owner is None:
+            self.confirmed_jersey_owner[key] = tracker_id
+        elif owner != tracker_id:
+            # Same team + same confirmed number on a different tracker id —
+            # almost certainly the same physical player, re-identified after
+            # a camera cut or tracking gap. Fold this one into the original.
+            self._merge_tracker(loser=tracker_id, winner=owner)
 
     def _read_jersey_number(self, crop: np.ndarray) -> Optional[str]:
         h, w = crop.shape[:2]
@@ -354,6 +432,7 @@ class PlayerMatchAnalyzer:
         return best if best is not None and best_conf >= 0.4 else None
 
     def _label_for(self, tracker_id: Optional[int]) -> str:
+        tracker_id = self._resolve(tracker_id)
         if tracker_id is None:
             return ""
         stat = self.stats.get(tracker_id)
