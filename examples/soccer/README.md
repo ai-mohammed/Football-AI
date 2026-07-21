@@ -1,5 +1,7 @@
 # Soccer AI ⚽
 
+> 🚀 **Démo en ligne : [football-ai-x.streamlit.app](https://football-ai-x.streamlit.app/)**
+
 ## 💻 install
 
 We don't have a Python package yet. Install from source in a
