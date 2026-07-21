@@ -1,5 +1,29 @@
+# Dependencies of the `sports` package itself (see /setup.py at the repo
+# root). Streamlit Cloud only runs `pip install -r <this file>` — it never
+# runs `pip install git+...sports.git` the way local dev setups do — so
+# everything `sports/` needs has to be listed here explicitly. The app finds
+# the local `sports/` package via sys.path (see streamlit_app.py), it doesn't
+# need to be pip-installed separately.
+supervision
+numpy
+opencv-python
+transformers
+umap-learn
+scikit-learn
+tqdm
+sentencepiece
+protobuf
+
+# App-specific dependencies
 ultralytics
 gdown
 streamlit
-inference  # optional, only needed for the hosted Roboflow API mode in streamlit_app.py
-easyocr    # optional, only needed for jersey number reading in the "Analyse par joueur" mode
+
+# Optional extras — the app degrades gracefully (with a clear in-app message)
+# if these aren't installed. Kept out of the default install because both are
+# heavy and prone to dependency conflicts, which can break cloud builds:
+#   inference : only needed for the "API Roboflow hébergée" model source
+#   easyocr   : only needed for jersey-number reading in "Analyse par joueur"
+#               (that mode is itself GPU-only, so it's dead weight without one)
+# pip install inference
+# pip install easyocr

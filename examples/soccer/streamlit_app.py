@@ -23,7 +23,16 @@ import streamlit as st
 import supervision as sv
 import torch
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# Make both this app's own directory (for `import main` / `player_analysis`)
+# and the repo root (for `import sports...`) resolvable regardless of how the
+# process was launched — Streamlit Cloud doesn't pip-install the `sports`
+# package, it only runs `pip install -r requirements.txt`, so the local
+# `sports/` checkout has to be found via sys.path instead.
+_APP_DIR = os.path.dirname(os.path.abspath(__file__))
+_REPO_ROOT = os.path.dirname(os.path.dirname(_APP_DIR))
+for _path in (_APP_DIR, _REPO_ROOT):
+    if _path not in sys.path:
+        sys.path.insert(0, _path)
 
 from main import (  # noqa: E402
     BOX_ANNOTATOR,
@@ -51,7 +60,7 @@ from player_analysis import (  # noqa: E402
     ocr_available,
 )
 
-PARENT_DIR = os.path.dirname(os.path.abspath(__file__))
+PARENT_DIR = _APP_DIR
 DATA_DIR = os.path.join(PARENT_DIR, 'data')
 
 LOCAL_MODEL_PATHS = {
@@ -117,6 +126,14 @@ def heavy_mode_available(device: str) -> bool:
     if os.environ.get("FORCE_ENABLE_PLAYER_ANALYSIS") == "1":
         return True
     return device == "cuda"
+
+
+def hosted_api_available() -> bool:
+    try:
+        import inference  # noqa: F401
+        return True
+    except ImportError:
+        return False
 
 
 def get_hosted_model(model_id: str, api_key: str):
@@ -365,6 +382,14 @@ with st.sidebar:
             ),
         )
         use_hosted = model_source == "API Roboflow hébergée"
+
+        if use_hosted and not hosted_api_available():
+            st.warning(
+                "Le paquet `inference` n'est pas installé : l'API hébergée "
+                "n'est pas disponible ici (`pip install inference`). "
+                "Utilisation des modèles locaux."
+            )
+            use_hosted = False
 
         if use_hosted and mode not in HOSTED_COMPATIBLE_MODES:
             st.warning(

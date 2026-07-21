@@ -25,7 +25,15 @@ import supervision as sv
 from tqdm import tqdm
 from ultralytics import YOLO
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# See the matching comment in streamlit_app.py: the repo root needs to be on
+# sys.path for `import sports...` to resolve, since that package isn't
+# pip-installed on cloud deployments — only its own dependencies are (see
+# requirements.txt).
+_APP_DIR = os.path.dirname(os.path.abspath(__file__))
+_REPO_ROOT = os.path.dirname(os.path.dirname(_APP_DIR))
+for _path in (_APP_DIR, _REPO_ROOT):
+    if _path not in sys.path:
+        sys.path.insert(0, _path)
 
 from main import (  # noqa: E402
     ELLIPSE_ANNOTATOR,
