@@ -12,6 +12,7 @@ ViewTransformer...) plutôt que de les redéfinir.
 Lancer avec (depuis la racine du repo) :
     streamlit run examples/soccer/streamlit_app.py
 """
+import json
 import os
 import sys
 import tempfile
@@ -62,6 +63,10 @@ from player_analysis import (  # noqa: E402
 
 PARENT_DIR = _APP_DIR
 DATA_DIR = os.path.join(PARENT_DIR, 'data')
+DEMO_DIR = os.path.join(PARENT_DIR, 'demo_data')
+
+TEAM_NAMES = {0: "Équipe A", 1: "Équipe B"}
+TEAM_COLORS = {0: sv.Color.from_hex('#FF1493'), 1: sv.Color.from_hex('#00BFFF')}
 
 LOCAL_MODEL_PATHS = {
     'player': os.path.join(DATA_DIR, 'football-player-detection.pt'),
@@ -315,6 +320,84 @@ def save_uploaded_video(uploaded_file) -> str:
     return tmp.name
 
 
+def list_demos() -> list:
+    if not os.path.isdir(DEMO_DIR):
+        return []
+    return sorted(
+        name for name in os.listdir(DEMO_DIR)
+        if os.path.isfile(os.path.join(DEMO_DIR, name, 'stats.json'))
+    )
+
+
+def render_demo_gallery() -> None:
+    demos = list_demos()
+    if not demos:
+        st.info(
+            "Aucun exemple pré-calculé disponible pour l'instant — utilise "
+            "l'onglet « Analyser ma vidéo »."
+        )
+        return
+
+    st.caption(
+        "Résultats déjà calculés une fois en local (GPU) — rien ne tourne "
+        "ici, c'est instantané. Utile pour démontrer l'app sans attendre un "
+        "traitement CPU."
+    )
+    demo_name = st.selectbox("Choisir un extrait", demos)
+    demo_dir = os.path.join(DEMO_DIR, demo_name)
+
+    with open(os.path.join(demo_dir, 'stats.json'), encoding='utf-8') as f:
+        stats = json.load(f)
+
+    video_path = os.path.join(demo_dir, 'annotated.mp4')
+    if os.path.isfile(video_path):
+        st.video(video_path)
+
+    st.subheader("🏟️ Vue d'équipe")
+    possession = stats['possession_pct']
+    col_a, col_b = st.columns(2)
+    col_a.metric(f"Possession — {TEAM_NAMES[0]}", f"{possession.get('0', 0):.0f}%")
+    col_b.metric(f"Possession — {TEAM_NAMES[1]}", f"{possession.get('1', 0):.0f}%")
+
+    with st.container(border=True):
+        st.markdown("**Zones d'activité collectives**")
+        heat_col_a, heat_col_b = st.columns(2)
+        for col, team_id in ((heat_col_a, 0), (heat_col_b, 1)):
+            path = os.path.join(demo_dir, f'heatmap_team_{team_id}.jpg')
+            with col:
+                if os.path.isfile(path):
+                    st.image(path, caption=TEAM_NAMES[team_id], use_container_width=True)
+                else:
+                    st.info(f"Pas assez de données pour {TEAM_NAMES[team_id]}.")
+
+    with st.container(border=True):
+        st.markdown("**Réseau de passes**")
+        net_team_id = st.radio(
+            "Équipe", [0, 1], format_func=lambda t: TEAM_NAMES[t],
+            horizontal=True, key="demo_pass_network_team",
+        )
+        path = os.path.join(demo_dir, f'pass_network_team_{net_team_id}.jpg')
+        if os.path.isfile(path):
+            st.image(path, use_container_width=True)
+        else:
+            st.info(
+                "Pas assez de passes détectées pour construire un réseau "
+                f"pour {TEAM_NAMES[net_team_id]}."
+            )
+
+    st.subheader("📊 Statistiques joueurs")
+    rows = [{
+        "Joueur": p['label'],
+        "Équipe": TEAM_NAMES.get(p['team_id'], "?"),
+        "Touches de balle": p['touches'],
+        "Passes faites": p['passes_made'],
+        "Passes reçues": p['passes_received'],
+        "Distance parcourue (m)": p['distance_m'],
+        "Vitesse moyenne (km/h)": p['avg_speed_kmh'],
+    } for p in stats['players']]
+    st.dataframe(rows, use_container_width=True, hide_index=True)
+
+
 # --------------------------------------------------------------------------
 # Page setup
 # --------------------------------------------------------------------------
@@ -469,251 +552,254 @@ with st.sidebar:
         "premier lancement d'un mode (~130 Mo chacun, une seule fois)."
     )
 
-# --------------------------------------------------------------------------
-# Main area — upload & run
-# --------------------------------------------------------------------------
+tab_demo, tab_live = st.tabs(["🎬 Exemples pré-calculés", "📤 Analyser ma vidéo"])
 
-with st.container(border=True):
-    uploaded_file = st.file_uploader(
-        "📤 Vidéo de match", type=["mp4", "avi", "mov", "mkv"],
-        help="Formats supportés : MP4, AVI, MOV, MKV.",
-    )
-    start = st.button(
-        "▶️ Lancer l'analyse", disabled=uploaded_file is None, type="primary",
-        use_container_width=True,
-    )
+with tab_demo:
+    render_demo_gallery()
 
-if start and uploaded_file is not None:
-    if use_hosted and mode not in HOSTED_COMPATIBLE_MODES:
-        st.info(
-            f"Le mode « {mode} » n'est pas disponible via l'API hébergée : "
-            "utilisation des modèles locaux."
-        )
-        use_hosted = False
-
-    if use_hosted and not api_key:
-        st.error("Renseigne une clé API Roboflow pour utiliser le modèle hébergé.")
-        st.stop()
-
-    if not use_hosted:
-        needed = required_local_models(mode)
-        missing = [n for n in needed if not os.path.isfile(LOCAL_MODEL_PATHS[n])]
-        if missing:
-            with st.spinner(
-                f"Téléchargement des modèles nécessaires ({', '.join(missing)})… "
-                "~130 Mo chacun, une seule fois."
-            ):
-                failed = ensure_local_models(missing)
-            if failed:
-                st.error(
-                    f"Échec du téléchargement automatique des modèles : "
-                    f"{', '.join(failed)}. Vérifie la connexion réseau, ou "
-                    "télécharge-les manuellement via `./setup.sh` (voir README) "
-                    "puis relance l'app."
-                )
-                st.stop()
-
-    video_path = save_uploaded_video(uploaded_file)
-    video_info = sv.VideoInfo.from_video_path(video_path)
-    total_to_process = max(1, -(-video_info.total_frames // stride))
-
-    analyzer: Optional[PlayerMatchAnalyzer] = None
-    if mode == PLAYER_ANALYSIS_MODE:
-        analyzer = PlayerMatchAnalyzer(
-            player_model_path=LOCAL_MODEL_PATHS['player'],
-            pitch_model_path=LOCAL_MODEL_PATHS['pitch'],
-            ball_model_path=LOCAL_MODEL_PATHS['ball'],
-            device=device,
-        )
-        frame_generator = analyzer.process(video_path, stride=stride)
-    elif use_hosted:
-        model = get_hosted_model(hosted_model_id, api_key)
-        frame_generator = build_hosted_generator(
-            mode, video_path, model, confidence, device, stride)
-    else:
-        frame_generator = build_local_generator(mode, video_path, device, stride)
-
-    st.subheader("📽️ Traitement en direct")
-    with st.container(border=True):
-        image_placeholder = st.empty()
-        progress_bar = st.progress(0.0)
-        metric_cols = st.columns(3)
-        frame_metric = metric_cols[0].empty()
-        fps_metric = metric_cols[1].empty()
-        elapsed_metric = metric_cols[2].empty()
-
-    sink: Optional[sv.VideoSink] = None
-    output_path = None
-    if save_output:
-        output_path = tempfile.NamedTemporaryFile(delete=False, suffix='.mp4').name
-        sink = sv.VideoSink(output_path, video_info)
-        sink.__enter__()
-
-    needs_warm_up = mode in (
-        "Classification d'équipes", "Radar (terrain + équipes)", PLAYER_ANALYSIS_MODE)
-    start_time = time.time()
-    frame_count = 0
-    try:
-        if needs_warm_up:
-            with st.spinner(
-                "Analyse des équipes en cours (échantillonnage des joueurs)…"
-            ):
-                first_frame = next(frame_generator)
-            frame_count = 1
-            if sink is not None:
-                sink.write_frame(first_frame)
-            image_placeholder.image(
-                first_frame, channels="BGR", use_container_width=True)
-
-        for frame in frame_generator:
-            frame_count += 1
-            if sink is not None:
-                sink.write_frame(frame)
-            if frame_count % display_every == 0 or frame_count >= total_to_process:
-                image_placeholder.image(frame, channels="BGR", use_container_width=True)
-                elapsed = time.time() - start_time
-                fps_proc = frame_count / elapsed if elapsed > 0 else 0.0
-                frame_metric.metric("Frames", f"{frame_count}/{total_to_process}")
-                fps_metric.metric("Vitesse", f"{fps_proc:.1f} fps")
-                elapsed_metric.metric("Temps écoulé", f"{elapsed:.0f}s")
-            progress_bar.progress(min(frame_count / total_to_process, 1.0))
-    finally:
-        if sink is not None:
-            sink.__exit__(None, None, None)
-
-    st.success(f"✅ Traitement terminé : {frame_count} frames analysées en "
-               f"{time.time() - start_time:.0f}s.")
-
-    if save_output and output_path:
-        with open(output_path, "rb") as f:
-            st.download_button(
-                "⬇️ Télécharger la vidéo annotée",
-                data=f,
-                file_name=f"soccer_ai_{mode.replace(' ', '_')}.mp4",
-                mime="video/mp4",
-            )
-
-    if analyzer is not None:
-        st.session_state['player_report'] = analyzer.report()
-        st.session_state['team_report'] = analyzer.team_report()
-    else:
-        st.session_state.pop('player_report', None)
-        st.session_state.pop('team_report', None)
-elif uploaded_file is None:
-    st.info("👆 Upload une vidéo de match pour commencer.")
-
-TEAM_NAMES = {0: "Équipe A", 1: "Équipe B"}
-TEAM_COLORS = {0: sv.Color.from_hex('#FF1493'), 1: sv.Color.from_hex('#00BFFF')}
-
-# --------------------------------------------------------------------------
-# Team dashboard (persists across reruns, e.g. switching the team selector,
-# without re-running the whole video pipeline)
-# --------------------------------------------------------------------------
-
-if st.session_state.get('team_report') is not None:
-    st.divider()
-    st.subheader("🏟️ Vue d'équipe")
-    team_report = st.session_state['team_report']
-
-    possession = team_report['possession_pct']
-    col_a, col_b = st.columns(2)
-    col_a.metric(f"Possession — {TEAM_NAMES[0]}", f"{possession.get(0, 0):.0f}%")
-    col_b.metric(f"Possession — {TEAM_NAMES[1]}", f"{possession.get(1, 0):.0f}%")
-    st.progress(possession.get(0, 0) / 100 if possession.get(0, 0) else 0.0)
-    st.caption(
-        "Possession estimée à partir du nombre de touches de balle par équipe "
-        "(heuristique, pas une mesure officielle de temps de possession)."
-    )
+with tab_live:
+    # --------------------------------------------------------------------------
+    # Main area — upload & run
+    # --------------------------------------------------------------------------
 
     with st.container(border=True):
-        st.markdown("**Zones d'activité collectives**")
-        heat_col_a, heat_col_b = st.columns(2)
-        for col, team_id in ((heat_col_a, 0), (heat_col_b, 1)):
-            xy = team_report['team_heatmaps'].get(team_id, np.empty((0, 2)))
-            with col:
-                if len(xy):
-                    heatmap = draw_pitch_heatmap(PITCH_CONFIG, xy=xy)
-                    st.image(heatmap, channels="BGR", caption=TEAM_NAMES[team_id],
-                              use_container_width=True)
-                else:
-                    st.info(f"Pas assez de données pour {TEAM_NAMES[team_id]}.")
-
-    with st.container(border=True):
-        st.markdown("**Réseau de passes**")
-        network_team_id = st.radio(
-            "Équipe", [0, 1], format_func=lambda t: TEAM_NAMES[t],
-            horizontal=True, key="pass_network_team",
+        uploaded_file = st.file_uploader(
+            "📤 Vidéo de match", type=["mp4", "avi", "mov", "mkv"],
+            help="Formats supportés : MP4, AVI, MOV, MKV.",
         )
-        network = team_report['pass_networks'].get(
-            network_team_id, {'node_xy': np.empty((0, 2)), 'node_labels': [], 'edges': []})
-        if len(network['node_xy']) and network['edges']:
-            diagram = draw_pass_network(
-                PITCH_CONFIG,
-                node_xy=network['node_xy'],
-                node_labels=network['node_labels'],
-                edges=network['edges'],
-                node_color=TEAM_COLORS[network_team_id],
-            )
-            st.image(diagram, channels="BGR", use_container_width=True)
-        else:
+        start = st.button(
+            "▶️ Lancer l'analyse", disabled=uploaded_file is None, type="primary",
+            use_container_width=True,
+        )
+
+    if start and uploaded_file is not None:
+        if use_hosted and mode not in HOSTED_COMPATIBLE_MODES:
             st.info(
-                "Pas assez de passes détectées pour construire un réseau "
-                f"pour {TEAM_NAMES[network_team_id]}."
+                f"Le mode « {mode} » n'est pas disponible via l'API hébergée : "
+                "utilisation des modèles locaux."
             )
+            use_hosted = False
 
-# --------------------------------------------------------------------------
-# Player-by-player dashboard (persists across reruns, e.g. changing the
-# player selector below, without re-running the whole video pipeline)
-# --------------------------------------------------------------------------
+        if use_hosted and not api_key:
+            st.error("Renseigne une clé API Roboflow pour utiliser le modèle hébergé.")
+            st.stop()
 
-if st.session_state.get('player_report') is not None:
-    st.divider()
-    st.subheader("📊 Étude joueur par joueur")
-    report = st.session_state['player_report']
+        if not use_hosted:
+            needed = required_local_models(mode)
+            missing = [n for n in needed if not os.path.isfile(LOCAL_MODEL_PATHS[n])]
+            if missing:
+                with st.spinner(
+                    f"Téléchargement des modèles nécessaires ({', '.join(missing)})… "
+                    "~130 Mo chacun, une seule fois."
+                ):
+                    failed = ensure_local_models(missing)
+                if failed:
+                    st.error(
+                        f"Échec du téléchargement automatique des modèles : "
+                        f"{', '.join(failed)}. Vérifie la connexion réseau, ou "
+                        "télécharge-les manuellement via `./setup.sh` (voir README) "
+                        "puis relance l'app."
+                    )
+                    st.stop()
 
-    if not report:
-        st.info("Aucun joueur suffisamment suivi pour établir des statistiques.")
-    else:
-        rows = []
-        row_labels = []
-        for p in report:
-            label = f"#{p['jersey_number']}" if p['jersey_number'] else f"ID {p['tracker_ids'][0]}"
-            row_labels.append(label)
-            rows.append({
-                "Joueur": label,
-                "Équipe": TEAM_NAMES.get(p['team_id'], "?"),
-                "Touches de balle": p['touches'],
-                "Passes faites": p['passes_made'],
-                "Passes reçues": p['passes_received'],
-                "Distance parcourue (m)": round(p['distance_m'], 1),
-                "Vitesse moyenne (km/h)": p.get('avg_speed_kmh', 0.0),
-            })
+        video_path = save_uploaded_video(uploaded_file)
+        video_info = sv.VideoInfo.from_video_path(video_path)
+        total_to_process = max(1, -(-video_info.total_frames // stride))
 
+        analyzer: Optional[PlayerMatchAnalyzer] = None
+        if mode == PLAYER_ANALYSIS_MODE:
+            analyzer = PlayerMatchAnalyzer(
+                player_model_path=LOCAL_MODEL_PATHS['player'],
+                pitch_model_path=LOCAL_MODEL_PATHS['pitch'],
+                ball_model_path=LOCAL_MODEL_PATHS['ball'],
+                device=device,
+            )
+            frame_generator = analyzer.process(video_path, stride=stride)
+        elif use_hosted:
+            model = get_hosted_model(hosted_model_id, api_key)
+            frame_generator = build_hosted_generator(
+                mode, video_path, model, confidence, device, stride)
+        else:
+            frame_generator = build_local_generator(mode, video_path, device, stride)
+
+        st.subheader("📽️ Traitement en direct")
         with st.container(border=True):
-            st.dataframe(rows, use_container_width=True, hide_index=True)
+            image_placeholder = st.empty()
+            progress_bar = st.progress(0.0)
+            metric_cols = st.columns(3)
+            frame_metric = metric_cols[0].empty()
+            fps_metric = metric_cols[1].empty()
+            elapsed_metric = metric_cols[2].empty()
 
-        with st.container(border=True):
-            selected_label = st.selectbox("Cartographie du joueur", row_labels)
-            selected = report[row_labels.index(selected_label)]
+        sink: Optional[sv.VideoSink] = None
+        output_path = None
+        if save_output:
+            output_path = tempfile.NamedTemporaryFile(delete=False, suffix='.mp4').name
+            sink = sv.VideoSink(output_path, video_info)
+            sink.__enter__()
 
-            col1, col2, col3, col4 = st.columns(4)
-            col1.metric("Touches de balle", selected['touches'])
-            col2.metric(
-                "Passes faites / reçues",
-                f"{selected['passes_made']} / {selected['passes_received']}")
-            col3.metric("Distance parcourue", f"{selected['distance_m']:.1f} m")
-            col4.metric(
-                "Vitesse moyenne", f"{selected.get('avg_speed_kmh', 0.0):.1f} km/h")
+        needs_warm_up = mode in (
+            "Classification d'équipes", "Radar (terrain + équipes)", PLAYER_ANALYSIS_MODE)
+        start_time = time.time()
+        frame_count = 0
+        try:
+            if needs_warm_up:
+                with st.spinner(
+                    "Analyse des équipes en cours (échantillonnage des joueurs)…"
+                ):
+                    first_frame = next(frame_generator)
+                frame_count = 1
+                if sink is not None:
+                    sink.write_frame(first_frame)
+                image_placeholder.image(
+                    first_frame, channels="BGR", use_container_width=True)
 
-            if len(selected['trajectory']):
-                heatmap = draw_pitch_heatmap(PITCH_CONFIG, xy=selected['trajectory'])
-                st.image(
-                    heatmap, channels="BGR",
-                    caption=f"Zones d'activité sur le terrain — {selected_label}",
-                    use_container_width=True,
+            for frame in frame_generator:
+                frame_count += 1
+                if sink is not None:
+                    sink.write_frame(frame)
+                if frame_count % display_every == 0 or frame_count >= total_to_process:
+                    image_placeholder.image(frame, channels="BGR", use_container_width=True)
+                    elapsed = time.time() - start_time
+                    fps_proc = frame_count / elapsed if elapsed > 0 else 0.0
+                    frame_metric.metric("Frames", f"{frame_count}/{total_to_process}")
+                    fps_metric.metric("Vitesse", f"{fps_proc:.1f} fps")
+                    elapsed_metric.metric("Temps écoulé", f"{elapsed:.0f}s")
+                progress_bar.progress(min(frame_count / total_to_process, 1.0))
+        finally:
+            if sink is not None:
+                sink.__exit__(None, None, None)
+
+        st.success(f"✅ Traitement terminé : {frame_count} frames analysées en "
+                   f"{time.time() - start_time:.0f}s.")
+
+        if save_output and output_path:
+            with open(output_path, "rb") as f:
+                st.download_button(
+                    "⬇️ Télécharger la vidéo annotée",
+                    data=f,
+                    file_name=f"soccer_ai_{mode.replace(' ', '_')}.mp4",
+                    mime="video/mp4",
                 )
+
+        if analyzer is not None:
+            st.session_state['player_report'] = analyzer.report()
+            st.session_state['team_report'] = analyzer.team_report()
+        else:
+            st.session_state.pop('player_report', None)
+            st.session_state.pop('team_report', None)
+    elif uploaded_file is None:
+        st.info("👆 Upload une vidéo de match pour commencer.")
+
+    # --------------------------------------------------------------------------
+    # Team dashboard (persists across reruns, e.g. switching the team selector,
+    # without re-running the whole video pipeline)
+    # --------------------------------------------------------------------------
+
+    if st.session_state.get('team_report') is not None:
+        st.divider()
+        st.subheader("🏟️ Vue d'équipe")
+        team_report = st.session_state['team_report']
+
+        possession = team_report['possession_pct']
+        col_a, col_b = st.columns(2)
+        col_a.metric(f"Possession — {TEAM_NAMES[0]}", f"{possession.get(0, 0):.0f}%")
+        col_b.metric(f"Possession — {TEAM_NAMES[1]}", f"{possession.get(1, 0):.0f}%")
+        st.progress(possession.get(0, 0) / 100 if possession.get(0, 0) else 0.0)
+        st.caption(
+            "Possession estimée à partir du nombre de touches de balle par équipe "
+            "(heuristique, pas une mesure officielle de temps de possession)."
+        )
+
+        with st.container(border=True):
+            st.markdown("**Zones d'activité collectives**")
+            heat_col_a, heat_col_b = st.columns(2)
+            for col, team_id in ((heat_col_a, 0), (heat_col_b, 1)):
+                xy = team_report['team_heatmaps'].get(team_id, np.empty((0, 2)))
+                with col:
+                    if len(xy):
+                        heatmap = draw_pitch_heatmap(PITCH_CONFIG, xy=xy)
+                        st.image(heatmap, channels="BGR", caption=TEAM_NAMES[team_id],
+                                  use_container_width=True)
+                    else:
+                        st.info(f"Pas assez de données pour {TEAM_NAMES[team_id]}.")
+
+        with st.container(border=True):
+            st.markdown("**Réseau de passes**")
+            network_team_id = st.radio(
+                "Équipe", [0, 1], format_func=lambda t: TEAM_NAMES[t],
+                horizontal=True, key="pass_network_team",
+            )
+            network = team_report['pass_networks'].get(
+                network_team_id, {'node_xy': np.empty((0, 2)), 'node_labels': [], 'edges': []})
+            if len(network['node_xy']) and network['edges']:
+                diagram = draw_pass_network(
+                    PITCH_CONFIG,
+                    node_xy=network['node_xy'],
+                    node_labels=network['node_labels'],
+                    edges=network['edges'],
+                    node_color=TEAM_COLORS[network_team_id],
+                )
+                st.image(diagram, channels="BGR", use_container_width=True)
             else:
-                st.info("Pas assez de données de position pour ce joueur.")
+                st.info(
+                    "Pas assez de passes détectées pour construire un réseau "
+                    f"pour {TEAM_NAMES[network_team_id]}."
+                )
+
+    # --------------------------------------------------------------------------
+    # Player-by-player dashboard (persists across reruns, e.g. changing the
+    # player selector below, without re-running the whole video pipeline)
+    # --------------------------------------------------------------------------
+
+    if st.session_state.get('player_report') is not None:
+        st.divider()
+        st.subheader("📊 Étude joueur par joueur")
+        report = st.session_state['player_report']
+
+        if not report:
+            st.info("Aucun joueur suffisamment suivi pour établir des statistiques.")
+        else:
+            rows = []
+            row_labels = []
+            for p in report:
+                label = f"#{p['jersey_number']}" if p['jersey_number'] else f"ID {p['tracker_ids'][0]}"
+                row_labels.append(label)
+                rows.append({
+                    "Joueur": label,
+                    "Équipe": TEAM_NAMES.get(p['team_id'], "?"),
+                    "Touches de balle": p['touches'],
+                    "Passes faites": p['passes_made'],
+                    "Passes reçues": p['passes_received'],
+                    "Distance parcourue (m)": round(p['distance_m'], 1),
+                    "Vitesse moyenne (km/h)": p.get('avg_speed_kmh', 0.0),
+                })
+
+            with st.container(border=True):
+                st.dataframe(rows, use_container_width=True, hide_index=True)
+
+            with st.container(border=True):
+                selected_label = st.selectbox("Cartographie du joueur", row_labels)
+                selected = report[row_labels.index(selected_label)]
+
+                col1, col2, col3, col4 = st.columns(4)
+                col1.metric("Touches de balle", selected['touches'])
+                col2.metric(
+                    "Passes faites / reçues",
+                    f"{selected['passes_made']} / {selected['passes_received']}")
+                col3.metric("Distance parcourue", f"{selected['distance_m']:.1f} m")
+                col4.metric(
+                    "Vitesse moyenne", f"{selected.get('avg_speed_kmh', 0.0):.1f} km/h")
+
+                if len(selected['trajectory']):
+                    heatmap = draw_pitch_heatmap(PITCH_CONFIG, xy=selected['trajectory'])
+                    st.image(
+                        heatmap, channels="BGR",
+                        caption=f"Zones d'activité sur le terrain — {selected_label}",
+                        use_container_width=True,
+                    )
+                else:
+                    st.info("Pas assez de données de position pour ce joueur.")
 
 st.divider()
 st.caption(

@@ -1,0 +1,227 @@
+{
+  "source_video": "2e57b9_0.mp4",
+  "frames": 300,
+  "stride": 1,
+  "possession_pct": {
+    "0": 20.0,
+    "1": 80.0
+  },
+  "players": [
+    {
+      "label": "ID10",
+      "team_id": 1,
+      "touches": 3,
+      "passes_made": 2,
+      "passes_received": 2,
+      "distance_m": 27.8,
+      "avg_speed_kmh": 12.5
+    },
+    {
+      "label": "ID18",
+      "team_id": 1,
+      "touches": 2,
+      "passes_made": 0,
+      "passes_received": 0,
+      "distance_m": 47.1,
+      "avg_speed_kmh": 14.5
+    },
+    {
+      "label": "ID7",
+      "team_id": 0,
+      "touches": 1,
+      "passes_made": 0,
+      "passes_received": 1,
+      "distance_m": 41.9,
+      "avg_speed_kmh": 12.7
+    },
+    {
+      "label": "ID4",
+      "team_id": 0,
+      "touches": 1,
+      "passes_made": 0,
+      "passes_received": 0,
+      "distance_m": 45.0,
+      "avg_speed_kmh": 13.6
+    },
+    {
+      "label": "ID12",
+      "team_id": 1,
+      "touches": 1,
+      "passes_made": 1,
+      "passes_received": 1,
+      "distance_m": 46.7,
+      "avg_speed_kmh": 14.2
+    },
+    {
+      "label": "ID8",
+      "team_id": 1,
+      "touches": 1,
+      "passes_made": 1,
+      "passes_received": 0,
+      "distance_m": 38.4,
+      "avg_speed_kmh": 11.8
+    },
+    {
+      "label": "ID28",
+      "team_id": 1,
+      "touches": 1,
+      "passes_made": 1,
+      "passes_received": 1,
+      "distance_m": 0.4,
+      "avg_speed_kmh": 12.0
+    },
+    {
+      "label": "ID1",
+      "team_id": 1,
+      "touches": 0,
+      "passes_made": 0,
+      "passes_received": 0,
+      "distance_m": 44.4,
+      "avg_speed_kmh": 13.6
+    },
+    {
+      "label": "ID19",
+      "team_id": 1,
+      "touches": 0,
+      "passes_made": 0,
+      "passes_received": 0,
+      "distance_m": 52.7,
+      "avg_speed_kmh": 16.0
+    },
+    {
+      "label": "ID15",
+      "team_id": 0,
+      "touches": 0,
+      "passes_made": 0,
+      "passes_received": 0,
+      "distance_m": 42.9,
+      "avg_speed_kmh": 13.2
+    },
+    {
+      "label": "ID9",
+      "team_id": 0,
+      "touches": 0,
+      "passes_made": 0,
+      "passes_received": 0,
+      "distance_m": 45.4,
+      "avg_speed_kmh": 13.8
+    },
+    {
+      "label": "ID2",
+      "team_id": 0,
+      "touches": 0,
+      "passes_made": 0,
+      "passes_received": 0,
+      "distance_m": 46.3,
+      "avg_speed_kmh": 14.0
+    },
+    {
+      "label": "ID6",
+      "team_id": 0,
+      "touches": 0,
+      "passes_made": 0,
+      "passes_received": 0,
+      "distance_m": 41.0,
+      "avg_speed_kmh": 12.4
+    },
+    {
+      "label": "ID5",
+      "team_id": 0,
+      "touches": 0,
+      "passes_made": 0,
+      "passes_received": 0,
+      "distance_m": 43.1,
+      "avg_speed_kmh": 13.7
+    },
+    {
+      "label": "ID16",
+      "team_id": 1,
+      "touches": 0,
+      "passes_made": 0,
+      "passes_received": 0,
+      "distance_m": 36.2,
+      "avg_speed_kmh": 11.0
+    },
+    {
+      "label": "ID13",
+      "team_id": 1,
+      "touches": 0,
+      "passes_made": 0,
+      "passes_received": 0,
+      "distance_m": 42.1,
+      "avg_speed_kmh": 12.8
+    },
+    {
+      "label": "ID11",
+      "team_id": 0,
+      "touches": 0,
+      "passes_made": 0,
+      "passes_received": 0,
+      "distance_m": 48.8,
+      "avg_speed_kmh": 14.8
+    },
+    {
+      "label": "ID14",
+      "team_id": 0,
+      "touches": 0,
+      "passes_made": 0,
+      "passes_received": 0,
+      "distance_m": 39.2,
+      "avg_speed_kmh": 11.9
+    },
+    {
+      "label": "ID17",
+      "team_id": 1,
+      "touches": 0,
+      "passes_made": 0,
+      "passes_received": 0,
+      "distance_m": 45.8,
+      "avg_speed_kmh": 13.9
+    },
+    {
+      "label": "ID22",
+      "team_id": 0,
+      "touches": 0,
+      "passes_made": 0,
+      "passes_received": 0,
+      "distance_m": 43.4,
+      "avg_speed_kmh": 13.2
+    },
+    {
+      "label": "ID20",
+      "team_id": 1,
+      "touches": 0,
+      "passes_made": 0,
+      "passes_received": 0,
+      "distance_m": 40.4,
+      "avg_speed_kmh": 12.2
+    },
+    {
+      "label": "ID23",
+      "team_id": 1,
+      "touches": 0,
+      "passes_made": 0,
+      "passes_received": 0,
+      "distance_m": 46.6,
+      "avg_speed_kmh": 14.1
+    },
+    {
+      "label": "ID24",
+      "team_id": 1,
+      "touches": 0,
+      "passes_made": 0,
+      "passes_received": 0,
+      "distance_m": 0.2,
+      "avg_speed_kmh": 6.0
+    },
+    {
+      "label": "ID3",
+      "team_id": 1,
+      "touches": 0,
+      "passes_made": 0,
+      "passes_received": 0,
+      "distance_m": 0.4,
+      "avg_speed_kmh": 6.0
+    }
+  ]
+}

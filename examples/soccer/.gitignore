@@ -6,6 +6,10 @@ data/
 *.mov
 *.mkv
 
+# ...except the pre-rendered demo clips committed on purpose for the
+# "Exemples pré-calculés" gallery in streamlit_app.py
+!demo_data/**/*.mp4
+
 # Local virtual environments some notebooks were run from
 .venv/
 venv/
