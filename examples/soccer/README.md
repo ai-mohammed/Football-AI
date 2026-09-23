@@ -4,11 +4,10 @@
 
 ## 💻 install
 
-We don't have a Python package yet. Install from source in a
-[**Python>=3.8**](https://www.python.org/) environment.
+Install this checkout with Python 3.11. The current training and evaluation workflow is documented in [docs/TRAINING.md](../../docs/TRAINING.md).
 
 ```bash
-pip install git+https://github.com/roboflow/sports.git
+pip install -e .
 cd examples/soccer
 pip install -r requirements.txt
 ./setup.sh
@@ -32,12 +31,9 @@ downloaded from the [Roboflow Universe](https://universe.roboflow.com/).
 players, goalkeepers, referees, and the ball in the video.
 - [YOLOv8](https://docs.ultralytics.com/models/yolov8/) (Pitch Detection) - Identifies 
 the soccer field boundaries and key points.
-- [SigLIP](https://huggingface.co/docs/transformers/en/model_doc/siglip) - Extracts 
-features from image crops of players.
-- [UMAP](https://umap-learn.readthedocs.io/en/latest/) - Reduces the dimensionality of 
-the extracted features for easier clustering.
-- [KMeans](https://scikit-learn.org/stable/modules/generated/sklearn.cluster.KMeans.html) - 
-Clusters the reduced-dimension features to classify players into two teams.
+- Team classification: torso colour in LAB space and deterministic KMeans, with temporal voting and unknown labels. Optional SigLIP/PCA backend for experimentation; UMAP/Numba is no longer required.
+- Per-player tracking: ByteTrack or BoT-SORT with camera-motion compensation and appearance features. Jersey OCR supplies separate match-identity evidence.
+- YOLO11: training CLI and experimental 32-point checkpoint, evaluated against the historical model; see [the report](../../reports/README.md).
 
 ## 🛠️ modes
 
@@ -124,7 +120,7 @@ terrain) — avec export de la vidéo annotée à la fin.
 
 ```bash
 # depuis la racine du repo (important : c'est là que vit .streamlit/config.toml)
-pip install git+https://github.com/roboflow/sports.git
+pip install -e .
 cd examples/soccer && pip install -r requirements.txt && cd ../..
 streamlit run examples/soccer/streamlit_app.py
 ```
@@ -135,10 +131,12 @@ reste une alternative si tu préfères tout précharger d'un coup (il téléchar
 aussi des vidéos d'exemple).
 
 Un mode "API Roboflow hébergée" est disponible pour la
-détection/tracking/classification joueurs sans téléchargement de poids : dans
+détection/tracking/classification joueurs via le SDK Roboflow : dans
 ce cas, définis ta clé dans la variable d'environnement `ROBOFLOW_API_KEY` (ou
 dans `.streamlit/secrets.toml` sous la clé `ROBOFLOW_API_KEY`) plutôt que de
 la coder en dur.
+
+Ce SDK peut effectuer des calculs et téléchargements sur le serveur de l'application ; ce n'est pas un accès au GPU du PC.
 
 Le mode **Analyse par joueur** ne s'affiche que si un GPU CUDA est détecté
 (sinon il est impraticable — voir plus bas) ; force-le sur CPU avec
@@ -150,7 +148,7 @@ Le mode **Analyse par joueur** ne s'affiche que si un GPU CUDA est détecté
 2. Sur [share.streamlit.io](https://share.streamlit.io), crée une nouvelle
    app en pointant vers ton repo, avec comme "Main file path" :
    `examples/soccer/streamlit_app.py`.
-3. Dans les "Secrets" de l'app, ajoute `ROBOFLOW_API_KEY` si tu veux proposer
+3. Choisis Python 3.11 dans les paramètres avancés du déploiement. Dans les "Secrets" de l'app, ajoute `ROBOFLOW_API_KEY` si tu veux proposer
    le mode API hébergée.
 4. Le thème (`.streamlit/config.toml`), les dépendances
    (`examples/soccer/requirements.txt`) et les paquets système nécessaires à

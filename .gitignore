@@ -156,3 +156,7 @@ Desktop.ini
 
 # Claude Code local tooling config
 .claude/
+
+# Local model experiments (metrics selected for publication live in reports/)
+/runs/
+/*.pt

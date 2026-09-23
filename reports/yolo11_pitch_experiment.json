@@ -1,0 +1,141 @@
+{
+  "date": "2026-09-24",
+  "hardware": "NVIDIA GeForce RTX 3080",
+  "stages": [
+    {
+      "status": "experimental_not_promoted",
+      "task": "pitch",
+      "epochs_requested": 20,
+      "seed": 42,
+      "imgsz": 640,
+      "model": "yolo11n-pose.pt",
+      "checkpoint": "runs/football/yolo11n-pitch-pilot/train/weights/best.pt",
+      "dataset": {
+        "task": "pitch",
+        "counts": {
+          "train": 222,
+          "val": 30,
+          "test": 24
+        },
+        "errors": [],
+        "source": "data.yaml",
+        "license": "CC BY 4.0",
+        "dataset_fingerprint": "83bc6517f3fec87aa12e3c6cc53157a521468fdf3798e95a758f48f1356ab9c7",
+        "limitations": "Exact-byte duplicates only; split by match/camera before claiming generalisation."
+      },
+      "ultralytics": "8.4.103",
+      "torch": "2.13.0+cu130",
+      "candidate": {
+        "metrics": {
+          "metrics/precision(B)": 0.9982006408810775,
+          "metrics/recall(B)": 1.0,
+          "metrics/mAP50(B)": 0.995,
+          "metrics/mAP50-95(B)": 0.9611802457071059,
+          "metrics/precision(P)": 0.29943776840629205,
+          "metrics/recall(P)": 0.3,
+          "metrics/mAP50(P)": 0.22954545454545455,
+          "metrics/mAP50-95(P)": 0.059436363636363634,
+          "fitness": 1.0206166093434696
+        },
+        "speed_ms_per_image": {
+          "preprocess": 0.48112666663655546,
+          "inference": 8.551813333300135,
+          "loss": 0.0007533333397683843,
+          "postprocess": 0.8522599999802575
+        }
+      },
+      "baseline": {
+        "metrics": {
+          "metrics/precision(B)": 1.0,
+          "metrics/recall(B)": 1.0,
+          "metrics/mAP50(B)": 0.995,
+          "metrics/mAP50-95(B)": 0.9907666666666668,
+          "metrics/precision(P)": 1.0,
+          "metrics/recall(P)": 1.0,
+          "metrics/mAP50(P)": 0.995,
+          "metrics/mAP50-95(P)": 0.925440909090909,
+          "fitness": 1.9162075757575758
+        },
+        "speed_ms_per_image": {
+          "preprocess": 0.12240666668124808,
+          "inference": 12.278820000028645,
+          "loss": 0.0007433332636234505,
+          "postprocess": 0.8045033333473839
+        }
+      },
+      "epochs_completed": 20,
+      "checkpoint_size_mb": 6.8
+    },
+    {
+      "status": "experimental_not_promoted",
+      "task": "pitch",
+      "epochs_requested": 80,
+      "seed": 42,
+      "imgsz": 640,
+      "model": "runs/football/yolo11n-pitch-pilot/train/weights/best.pt",
+      "checkpoint": "runs/football/yolo11n-pitch-refined/train/weights/best.pt",
+      "dataset": {
+        "task": "pitch",
+        "counts": {
+          "train": 222,
+          "val": 30,
+          "test": 24
+        },
+        "errors": [],
+        "source": "data.yaml",
+        "license": "CC BY 4.0",
+        "dataset_fingerprint": "83bc6517f3fec87aa12e3c6cc53157a521468fdf3798e95a758f48f1356ab9c7",
+        "limitations": "Exact-byte duplicates only; split by match/camera before claiming generalisation."
+      },
+      "ultralytics": "8.4.103",
+      "torch": "2.13.0+cu130",
+      "candidate": {
+        "metrics": {
+          "metrics/precision(B)": 0.9982601617746267,
+          "metrics/recall(B)": 1.0,
+          "metrics/mAP50(B)": 0.995,
+          "metrics/mAP50-95(B)": 0.9860666666666666,
+          "metrics/precision(P)": 0.9982601617746267,
+          "metrics/recall(P)": 1.0,
+          "metrics/mAP50(P)": 0.995,
+          "metrics/mAP50-95(P)": 0.7433376545676545,
+          "fitness": 1.729404321234321
+        },
+        "speed_ms_per_image": {
+          "preprocess": 0.49446000002717483,
+          "inference": 8.967319999980344,
+          "loss": 0.0007433333242564306,
+          "postprocess": 0.8080566666649247
+        }
+      },
+      "baseline": {
+        "metrics": {
+          "metrics/precision(B)": 1.0,
+          "metrics/recall(B)": 1.0,
+          "metrics/mAP50(B)": 0.995,
+          "metrics/mAP50-95(B)": 0.9907666666666668,
+          "metrics/precision(P)": 1.0,
+          "metrics/recall(P)": 1.0,
+          "metrics/mAP50(P)": 0.995,
+          "metrics/mAP50-95(P)": 0.925440909090909,
+          "fitness": 1.9162075757575758
+        },
+        "speed_ms_per_image": {
+          "preprocess": 0.2160300000165686,
+          "inference": 14.349246666673329,
+          "loss": 0.0006900000092476452,
+          "postprocess": 0.7127500000024156
+        }
+      },
+      "epochs_completed": 80,
+      "checkpoint_size_mb": 6.81
+    }
+  ],
+  "decision": "keep_historical_pitch_model",
+  "limitations": [
+    "30 validation images; not an independent match split",
+    "No MOT identity ground truth; no IDF1/HOTA claim",
+    "Historical model training provenance is not verified against this split",
+    "Latency is a single validation run, not a controlled throughput benchmark"
+  ]
+}

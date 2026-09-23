@@ -4,20 +4,21 @@
 # everything `sports/` needs has to be listed here explicitly. The app finds
 # the local `sports/` package via sys.path (see streamlit_app.py), it doesn't
 # need to be pip-installed separately.
-supervision
+supervision>=0.28,<0.30
 numpy
 opencv-python
-transformers
-umap-learn
+transformers>=4.44,<6
 scikit-learn
 tqdm
 sentencepiece
 protobuf
 
 # App-specific dependencies
-ultralytics
+ultralytics>=8.3.200,<8.5
+lap>=0.5.12,<0.6
+PyYAML>=6
 gdown
-streamlit
+streamlit>=1.46,<2
 
 # Optional extras — the app degrades gracefully (with a clear in-app message)
 # if these aren't installed. Kept out of the default install because both are

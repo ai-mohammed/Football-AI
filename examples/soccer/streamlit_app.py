@@ -24,6 +24,10 @@ import streamlit as st
 import supervision as sv
 import torch
 
+# Streamlit 1.49+ uses width; keep the local 1.46 installation compatible.
+STRETCH_WIDTH = ({"width": "stretch"} if tuple(map(int, st.__version__.split(".")[:2])) >= (1, 49)
+                 else {"use_container_width": True})
+
 # Make both this app's own directory (for `import main` / `player_analysis`)
 # and the repo root (for `import sports...`) resolvable regardless of how the
 # process was launched — Streamlit Cloud doesn't pip-install the `sports`
@@ -43,6 +47,9 @@ from main import (  # noqa: E402
     GOALKEEPER_CLASS_ID,
     PLAYER_CLASS_ID,
     REFEREE_CLASS_ID,
+    PLAYER_DETECTION_MODEL_PATH,
+    PITCH_DETECTION_MODEL_PATH,
+    BALL_DETECTION_MODEL_PATH,
     STRIDE,
     get_crops,
     resolve_goalkeepers_team_id,
@@ -69,9 +76,9 @@ TEAM_NAMES = {0: "Équipe A", 1: "Équipe B"}
 TEAM_COLORS = {0: sv.Color.from_hex('#FF1493'), 1: sv.Color.from_hex('#00BFFF')}
 
 LOCAL_MODEL_PATHS = {
-    'player': os.path.join(DATA_DIR, 'football-player-detection.pt'),
-    'ball': os.path.join(DATA_DIR, 'football-ball-detection.pt'),
-    'pitch': os.path.join(DATA_DIR, 'football-pitch-detection.pt'),
+    'player': PLAYER_DETECTION_MODEL_PATH,
+    'ball': BALL_DETECTION_MODEL_PATH,
+    'pitch': PITCH_DETECTION_MODEL_PATH,
 }
 
 # Google Drive file ids backing the same weights setup.sh downloads.
@@ -204,6 +211,9 @@ def run_team_classification_hosted(
         result = model.infer(frame, confidence=confidence)[0]
         detections = sv.Detections.from_inference(result)
         crops += get_crops(frame, detections[detections.class_id == PLAYER_CLASS_ID])
+        if len(crops) >= 320:
+            crops = crops[:320]
+            break
 
     team_classifier = TeamClassifier(device=device)
     team_classifier.fit(crops)
@@ -261,7 +271,9 @@ def download_local_model(name: str) -> str:
     across all sessions), so a fresh cloud deployment is self-sufficient
     without shell access to run setup.sh."""
     filename, file_id = MODEL_DOWNLOAD_INFO[name]
-    path = os.path.join(DATA_DIR, filename)
+    path = LOCAL_MODEL_PATHS[name]
+    if os.environ.get(f'FOOTBALL_{name.upper()}_MODEL') and not os.path.isfile(path):
+        raise FileNotFoundError(f'Modèle personnalisé introuvable : {path}')
     if not os.path.isfile(path):
         os.makedirs(DATA_DIR, exist_ok=True)
         import gdown
@@ -343,6 +355,8 @@ def render_demo_gallery() -> None:
         "ici, c'est instantané. Utile pour démontrer l'app sans attendre un "
         "traitement CPU."
     )
+    st.caption("Ces exemples proviennent du pipeline historique. Ils ne constituent pas "
+               "une évaluation des nouveaux modèles YOLO11 ou de BoT-SORT.")
     demo_name = st.selectbox("Choisir un extrait", demos)
     demo_dir = os.path.join(DEMO_DIR, demo_name)
 
@@ -366,7 +380,7 @@ def render_demo_gallery() -> None:
             path = os.path.join(demo_dir, f'heatmap_team_{team_id}.jpg')
             with col:
                 if os.path.isfile(path):
-                    st.image(path, caption=TEAM_NAMES[team_id], use_container_width=True)
+                    st.image(path, caption=TEAM_NAMES[team_id], **STRETCH_WIDTH)
                 else:
                     st.info(f"Pas assez de données pour {TEAM_NAMES[team_id]}.")
 
@@ -378,7 +392,7 @@ def render_demo_gallery() -> None:
         )
         path = os.path.join(demo_dir, f'pass_network_team_{net_team_id}.jpg')
         if os.path.isfile(path):
-            st.image(path, use_container_width=True)
+            st.image(path, **STRETCH_WIDTH)
         else:
             st.info(
                 "Pas assez de passes détectées pour construire un réseau "
@@ -395,7 +409,7 @@ def render_demo_gallery() -> None:
         "Distance parcourue (m)": p['distance_m'],
         "Vitesse moyenne (km/h)": p['avg_speed_kmh'],
     } for p in stats['players']]
-    st.dataframe(rows, use_container_width=True, hide_index=True)
+    st.dataframe(rows, **STRETCH_WIDTH, hide_index=True)
 
 
 # --------------------------------------------------------------------------
@@ -546,6 +560,18 @@ with st.sidebar:
     with st.expander("💾 Export", expanded=False):
         save_output = st.checkbox("Exporter la vidéo annotée", value=True)
 
+    tracker_backend = "bytetrack"
+    enable_ocr = True
+    if mode == PLAYER_ANALYSIS_MODE:
+        with st.expander("Suivi et identité", expanded=True):
+            tracker_backend = st.selectbox(
+                "Méthode de suivi", ["bytetrack", "botsort"],
+                format_func=lambda value: "ByteTrack — rapide" if value == "bytetrack" else "BoT-SORT — mouvement caméra + apparence",
+            )
+            enable_ocr = st.checkbox("Lire les numéros de maillot", value=ocr_available(), disabled=not ocr_available())
+            st.caption("Un ID reste une piste de suivi tant que le maillot est incertain. "
+                       "La ré-identification visuelle aide le suivi mais ne garantit pas l'identité après une coupure.")
+
     st.divider()
     st.caption(
         "Les modèles locaux manquants sont téléchargés automatiquement au "
@@ -569,10 +595,12 @@ with tab_live:
         )
         start = st.button(
             "▶️ Lancer l'analyse", disabled=uploaded_file is None, type="primary",
-            use_container_width=True,
+            **STRETCH_WIDTH,
         )
 
     if start and uploaded_file is not None:
+        for result_key in ('player_report', 'team_report', 'analysis_diagnostics'):
+            st.session_state.pop(result_key, None)
         if use_hosted and mode not in HOSTED_COMPATIBLE_MODES:
             st.info(
                 f"Le mode « {mode} » n'est pas disponible via l'API hébergée : "
@@ -608,12 +636,18 @@ with tab_live:
 
         analyzer: Optional[PlayerMatchAnalyzer] = None
         if mode == PLAYER_ANALYSIS_MODE:
-            analyzer = PlayerMatchAnalyzer(
-                player_model_path=LOCAL_MODEL_PATHS['player'],
-                pitch_model_path=LOCAL_MODEL_PATHS['pitch'],
-                ball_model_path=LOCAL_MODEL_PATHS['ball'],
-                device=device,
-            )
+            try:
+                analyzer = PlayerMatchAnalyzer(
+                    player_model_path=LOCAL_MODEL_PATHS['player'],
+                    pitch_model_path=LOCAL_MODEL_PATHS['pitch'],
+                    ball_model_path=LOCAL_MODEL_PATHS['ball'],
+                    device=device,
+                    tracker_backend=tracker_backend,
+                    enable_ocr=enable_ocr,
+                )
+            except (ValueError, FileNotFoundError) as error:
+                st.error(str(error))
+                st.stop()
             frame_generator = analyzer.process(video_path, stride=stride)
         elif use_hosted:
             model = get_hosted_model(hosted_model_id, api_key)
@@ -635,7 +669,9 @@ with tab_live:
         output_path = None
         if save_output:
             output_path = tempfile.NamedTemporaryFile(delete=False, suffix='.mp4').name
-            sink = sv.VideoSink(output_path, video_info)
+            export_info = sv.VideoInfo(width=video_info.width, height=video_info.height,
+                                       fps=video_info.fps / stride, total_frames=total_to_process)
+            sink = sv.VideoSink(output_path, export_info)
             sink.__enter__()
 
         needs_warm_up = mode in (
@@ -652,14 +688,14 @@ with tab_live:
                 if sink is not None:
                     sink.write_frame(first_frame)
                 image_placeholder.image(
-                    first_frame, channels="BGR", use_container_width=True)
+                    first_frame, channels="BGR", **STRETCH_WIDTH)
 
             for frame in frame_generator:
                 frame_count += 1
                 if sink is not None:
                     sink.write_frame(frame)
                 if frame_count % display_every == 0 or frame_count >= total_to_process:
-                    image_placeholder.image(frame, channels="BGR", use_container_width=True)
+                    image_placeholder.image(frame, channels="BGR", **STRETCH_WIDTH)
                     elapsed = time.time() - start_time
                     fps_proc = frame_count / elapsed if elapsed > 0 else 0.0
                     frame_metric.metric("Frames", f"{frame_count}/{total_to_process}")
@@ -685,9 +721,11 @@ with tab_live:
         if analyzer is not None:
             st.session_state['player_report'] = analyzer.report()
             st.session_state['team_report'] = analyzer.team_report()
+            st.session_state['analysis_diagnostics'] = analyzer.diagnostics()
         else:
             st.session_state.pop('player_report', None)
             st.session_state.pop('team_report', None)
+            st.session_state.pop('analysis_diagnostics', None)
     elif uploaded_file is None:
         st.info("👆 Upload une vidéo de match pour commencer.")
 
@@ -707,9 +745,24 @@ with tab_live:
         col_b.metric(f"Possession — {TEAM_NAMES[1]}", f"{possession.get(1, 0):.0f}%")
         st.progress(possession.get(0, 0) / 100 if possession.get(0, 0) else 0.0)
         st.caption(
-            "Possession estimée à partir du nombre de touches de balle par équipe "
-            "(heuristique, pas une mesure officielle de temps de possession)."
+            "Part du temps attribué à une équipe par proximité joueur–ballon. "
+            "Le temps sans attribution est exclu. Les passes sont des transitions probables de contrôle."
         )
+
+        diagnostics = st.session_state.get('analysis_diagnostics', {})
+        with st.expander("Fiabilité et données de l'analyse"):
+            a, b, c = st.columns(3)
+            a.metric("Terrain calibré", f"{diagnostics.get('calibration_coverage_pct', 0):.0f}% des images")
+            b.metric("Identités non résolues", diagnostics.get('unresolved_identities', 0))
+            c.metric("Possession indéterminée", f"{diagnostics.get('unknown_possession_seconds', 0):.1f} s")
+            st.caption("Les distances couvrent uniquement les séquences observées et calibrées, "
+                       "sur un terrain de référence de 120 × 70 m. Un réseau peut compter plus de "
+                       "11 pistes si certaines identités restent non résolues. Aucun regroupement n'est forcé.")
+            payload = {'diagnostics': diagnostics, 'players': st.session_state.get('player_report', [])}
+            st.download_button("Télécharger l'analyse JSON", json.dumps(
+                payload, ensure_ascii=False, indent=2,
+                default=lambda value: value.tolist() if isinstance(value, np.ndarray) else value.item()),
+                file_name="football_analysis.json", mime="application/json")
 
         with st.container(border=True):
             st.markdown("**Zones d'activité collectives**")
@@ -720,7 +773,7 @@ with tab_live:
                     if len(xy):
                         heatmap = draw_pitch_heatmap(PITCH_CONFIG, xy=xy)
                         st.image(heatmap, channels="BGR", caption=TEAM_NAMES[team_id],
-                                  use_container_width=True)
+                                  **STRETCH_WIDTH)
                     else:
                         st.info(f"Pas assez de données pour {TEAM_NAMES[team_id]}.")
 
@@ -740,7 +793,7 @@ with tab_live:
                     edges=network['edges'],
                     node_color=TEAM_COLORS[network_team_id],
                 )
-                st.image(diagram, channels="BGR", use_container_width=True)
+                st.image(diagram, channels="BGR", **STRETCH_WIDTH)
             else:
                 st.info(
                     "Pas assez de passes détectées pour construire un réseau "
@@ -764,39 +817,39 @@ with tab_live:
             row_labels = []
             for p in report:
                 label = f"#{p['jersey_number']}" if p['jersey_number'] else f"ID {p['tracker_ids'][0]}"
-                row_labels.append(label)
+                row_labels.append(f"{TEAM_NAMES.get(p['team_id'], '?')} · {label} · piste {p['identity_id']}")
                 rows.append({
                     "Joueur": label,
                     "Équipe": TEAM_NAMES.get(p['team_id'], "?"),
-                    "Touches de balle": p['touches'],
-                    "Passes faites": p['passes_made'],
+                    "Prises de contrôle estimées": p['touches'],
+                    "Passes probables": p['passes_made'],
                     "Passes reçues": p['passes_received'],
-                    "Distance parcourue (m)": round(p['distance_m'], 1),
+                    "Distance observée (m)": round(p['distance_m'], 1),
                     "Vitesse moyenne (km/h)": p.get('avg_speed_kmh', 0.0),
                 })
 
             with st.container(border=True):
-                st.dataframe(rows, use_container_width=True, hide_index=True)
+                st.dataframe(rows, **STRETCH_WIDTH, hide_index=True)
 
             with st.container(border=True):
                 selected_label = st.selectbox("Cartographie du joueur", row_labels)
                 selected = report[row_labels.index(selected_label)]
 
                 col1, col2, col3, col4 = st.columns(4)
-                col1.metric("Touches de balle", selected['touches'])
+                col1.metric("Contrôles estimés", selected['touches'])
                 col2.metric(
                     "Passes faites / reçues",
                     f"{selected['passes_made']} / {selected['passes_received']}")
-                col3.metric("Distance parcourue", f"{selected['distance_m']:.1f} m")
+                col3.metric("Distance observée", f"{selected['distance_m']:.1f} m")
                 col4.metric(
-                    "Vitesse moyenne", f"{selected.get('avg_speed_kmh', 0.0):.1f} km/h")
+                    "Vitesse moyenne", f"{selected['avg_speed_kmh']:.1f} km/h" if selected.get('avg_speed_kmh') is not None else "Indéterminée")
 
                 if len(selected['trajectory']):
                     heatmap = draw_pitch_heatmap(PITCH_CONFIG, xy=selected['trajectory'])
                     st.image(
                         heatmap, channels="BGR",
                         caption=f"Zones d'activité sur le terrain — {selected_label}",
-                        use_container_width=True,
+                        **STRETCH_WIDTH,
                     )
                 else:
                     st.info("Pas assez de données de position pour ce joueur.")

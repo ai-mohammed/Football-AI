@@ -14,12 +14,14 @@ from sports.annotators.soccer import draw_pitch, draw_points_on_pitch
 from sports.common.ball import BallTracker, BallAnnotator
 from sports.common.team import TeamClassifier
 from sports.common.view import ViewTransformer
+from sports.common.calibration import pitch_transformer
+from sports.common.runtime import resolve_device
 from sports.configs.soccer import SoccerPitchConfiguration
 
 PARENT_DIR = os.path.dirname(os.path.abspath(__file__))
-PLAYER_DETECTION_MODEL_PATH = os.path.join(PARENT_DIR, 'data/football-player-detection.pt')
-PITCH_DETECTION_MODEL_PATH = os.path.join(PARENT_DIR, 'data/football-pitch-detection.pt')
-BALL_DETECTION_MODEL_PATH = os.path.join(PARENT_DIR, 'data/football-ball-detection.pt')
+PLAYER_DETECTION_MODEL_PATH = os.environ.get('FOOTBALL_PLAYER_MODEL', os.path.join(PARENT_DIR, 'data/football-player-detection.pt'))
+PITCH_DETECTION_MODEL_PATH = os.environ.get('FOOTBALL_PITCH_MODEL', os.path.join(PARENT_DIR, 'data/football-pitch-detection.pt'))
+BALL_DETECTION_MODEL_PATH = os.environ.get('FOOTBALL_BALL_MODEL', os.path.join(PARENT_DIR, 'data/football-ball-detection.pt'))
 
 BALL_CLASS_ID = 0
 GOALKEEPER_CLASS_ID = 1
@@ -124,6 +126,10 @@ def resolve_goalkeepers_team_id(
     """
     goalkeepers_xy = goalkeepers.get_anchors_coordinates(sv.Position.BOTTOM_CENTER)
     players_xy = players.get_anchors_coordinates(sv.Position.BOTTOM_CENTER)
+    if not len(goalkeepers):
+        return np.empty(0, dtype=int)
+    if not np.any(players_team_id == 0) or not np.any(players_team_id == 1):
+        return np.full(len(goalkeepers), 2, dtype=int)  # Unknown, no fabricated centroid.
     team_0_centroid = players_xy[players_team_id == 0].mean(axis=0)
     team_1_centroid = players_xy[players_team_id == 1].mean(axis=0)
     goalkeepers_team_id = []
@@ -131,7 +137,7 @@ def resolve_goalkeepers_team_id(
         dist_0 = np.linalg.norm(goalkeeper_xy - team_0_centroid)
         dist_1 = np.linalg.norm(goalkeeper_xy - team_1_centroid)
         goalkeepers_team_id.append(0 if dist_0 < dist_1 else 1)
-    return np.array(goalkeepers_team_id)
+    return np.array(goalkeepers_team_id, dtype=int)
 
 
 def smoothed_color_lookup(
@@ -152,12 +158,14 @@ def smoothed_color_lookup(
     lookup = []
     for tracker_id, team_id in zip(players.tracker_id, players_team_id):
         votes = team_votes[tracker_id]
-        votes[int(team_id)] += 1
-        lookup.append(votes.most_common(1)[0][0])
+        if team_id in (0, 1):
+            votes[int(team_id)] += 1
+        lookup.append(votes.most_common(1)[0][0] if votes else 2)
     for tracker_id, team_id in zip(goalkeepers.tracker_id, goalkeepers_team_id):
         votes = team_votes[tracker_id]
-        votes[int(team_id)] += 1
-        lookup.append(votes.most_common(1)[0][0])
+        if team_id in (0, 1):
+            votes[int(team_id)] += 1
+        lookup.append(votes.most_common(1)[0][0] if votes else 2)
     lookup += [REFEREE_CLASS_ID] * len(referees)
     return np.array(lookup)
 
@@ -167,11 +175,9 @@ def render_radar(
     keypoints: sv.KeyPoints,
     color_lookup: np.ndarray
 ) -> np.ndarray:
-    mask = (keypoints.xy[0][:, 0] > 1) & (keypoints.xy[0][:, 1] > 1)
-    transformer = ViewTransformer(
-        source=keypoints.xy[0][mask].astype(np.float32),
-        target=np.array(CONFIG.vertices)[mask].astype(np.float32)
-    )
+    transformer = pitch_transformer(keypoints, CONFIG.vertices)
+    if transformer is None:
+        return draw_pitch(config=CONFIG)
     xy = detections.get_anchors_coordinates(anchor=sv.Position.BOTTOM_CENTER)
     transformed_xy = transformer.transform_points(points=xy)
 
@@ -206,7 +212,7 @@ def run_pitch_detection(
     Yields:
         Iterator[np.ndarray]: Iterator over annotated frames.
     """
-    pitch_detection_model = YOLO(PITCH_DETECTION_MODEL_PATH).to(device=device)
+    pitch_detection_model = YOLO(PITCH_DETECTION_MODEL_PATH).to(device=resolve_device(device))
     frame_generator = sv.get_video_frames_generator(
         source_path=source_video_path, stride=stride)
     for frame in frame_generator:
@@ -234,7 +240,7 @@ def run_player_detection(
     Yields:
         Iterator[np.ndarray]: Iterator over annotated frames.
     """
-    player_detection_model = YOLO(PLAYER_DETECTION_MODEL_PATH).to(device=device)
+    player_detection_model = YOLO(PLAYER_DETECTION_MODEL_PATH).to(device=resolve_device(device))
     frame_generator = sv.get_video_frames_generator(
         source_path=source_video_path, stride=stride)
     for frame in frame_generator:
@@ -262,7 +268,7 @@ def run_ball_detection(
     Yields:
         Iterator[np.ndarray]: Iterator over annotated frames.
     """
-    ball_detection_model = YOLO(BALL_DETECTION_MODEL_PATH).to(device=device)
+    ball_detection_model = YOLO(BALL_DETECTION_MODEL_PATH).to(device=resolve_device(device))
     frame_generator = sv.get_video_frames_generator(
         source_path=source_video_path, stride=stride)
     ball_tracker = BallTracker(buffer_size=20)
@@ -301,7 +307,7 @@ def run_player_tracking(
     Yields:
         Iterator[np.ndarray]: Iterator over annotated frames.
     """
-    player_detection_model = YOLO(PLAYER_DETECTION_MODEL_PATH).to(device=device)
+    player_detection_model = YOLO(PLAYER_DETECTION_MODEL_PATH).to(device=resolve_device(device))
     frame_generator = sv.get_video_frames_generator(
         source_path=source_video_path, stride=stride)
     tracker = sv.ByteTrack(
@@ -336,7 +342,7 @@ def run_team_classification(
     Yields:
         Iterator[np.ndarray]: Iterator over annotated frames.
     """
-    player_detection_model = YOLO(PLAYER_DETECTION_MODEL_PATH).to(device=device)
+    player_detection_model = YOLO(PLAYER_DETECTION_MODEL_PATH).to(device=resolve_device(device))
     crop_generator = sv.get_video_frames_generator(
         source_path=source_video_path, stride=STRIDE)
 
@@ -345,6 +351,9 @@ def run_team_classification(
         result = player_detection_model(frame, imgsz=1280, verbose=False)[0]
         detections = sv.Detections.from_ultralytics(result)
         crops += get_crops(frame, detections[detections.class_id == PLAYER_CLASS_ID])
+        if len(crops) >= 320:
+            crops = crops[:320]
+            break
 
     team_classifier = TeamClassifier(device=device)
     team_classifier.fit(crops)
@@ -400,8 +409,8 @@ def run_radar(
     Yields:
         Iterator[np.ndarray]: Iterator over annotated frames.
     """
-    player_detection_model = YOLO(PLAYER_DETECTION_MODEL_PATH).to(device=device)
-    pitch_detection_model = YOLO(PITCH_DETECTION_MODEL_PATH).to(device=device)
+    player_detection_model = YOLO(PLAYER_DETECTION_MODEL_PATH).to(device=resolve_device(device))
+    pitch_detection_model = YOLO(PITCH_DETECTION_MODEL_PATH).to(device=resolve_device(device))
     crop_generator = sv.get_video_frames_generator(
         source_path=source_video_path, stride=STRIDE)
 
@@ -410,6 +419,9 @@ def run_radar(
         result = player_detection_model(frame, imgsz=1280, verbose=False)[0]
         detections = sv.Detections.from_ultralytics(result)
         crops += get_crops(frame, detections[detections.class_id == PLAYER_CLASS_ID])
+        if len(crops) >= 320:
+            crops = crops[:320]
+            break
 
     team_classifier = TeamClassifier(device=device)
     team_classifier.fit(crops)
