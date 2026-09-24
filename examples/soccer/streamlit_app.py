@@ -1,863 +1,120 @@
-"""
-Soccer AI — Streamlit app.
-
-Analyse "temps réel" (image par image, affichée en direct) d'une vidéo de football
-uploadée par l'utilisateur : détection des joueurs/ballon, tracking, classification
-d'équipes, radar tactique et étude joueur par joueur (numéros, passes, cartographie).
-
-Ce fichier réutilise au maximum les pipelines déjà définis dans `main.py` (le CLI du
-projet) et les briques du package `sports/` (annotateurs, TeamClassifier, BallTracker,
-ViewTransformer...) plutôt que de les redéfinir.
-
-Lancer avec (depuis la racine du repo) :
-    streamlit run examples/soccer/streamlit_app.py
-"""
-import json
-import os
+"""Football AI: a fast tactical workspace for video segments."""
+import hashlib
+from pathlib import Path
 import sys
-import tempfile
-import time
-from typing import Iterator, Optional
+from uuid import uuid4
 
-import numpy as np
 import streamlit as st
-import supervision as sv
-import torch
 
-# Streamlit 1.49+ uses width; keep the local 1.46 installation compatible.
-STRETCH_WIDTH = ({"width": "stretch"} if tuple(map(int, st.__version__.split(".")[:2])) >= (1, 49)
-                 else {"use_container_width": True})
-
-# Make both this app's own directory (for `import main` / `player_analysis`)
-# and the repo root (for `import sports...`) resolvable regardless of how the
-# process was launched — Streamlit Cloud doesn't pip-install the `sports`
-# package, it only runs `pip install -r requirements.txt`, so the local
-# `sports/` checkout has to be found via sys.path instead.
-_APP_DIR = os.path.dirname(os.path.abspath(__file__))
-_REPO_ROOT = os.path.dirname(os.path.dirname(_APP_DIR))
-for _path in (_APP_DIR, _REPO_ROOT):
-    if _path not in sys.path:
-        sys.path.insert(0, _path)
-
-from main import (  # noqa: E402
-    BOX_ANNOTATOR,
-    BOX_LABEL_ANNOTATOR,
-    ELLIPSE_ANNOTATOR,
-    ELLIPSE_LABEL_ANNOTATOR,
-    GOALKEEPER_CLASS_ID,
-    PLAYER_CLASS_ID,
-    REFEREE_CLASS_ID,
-    PLAYER_DETECTION_MODEL_PATH,
-    PITCH_DETECTION_MODEL_PATH,
-    BALL_DETECTION_MODEL_PATH,
-    STRIDE,
-    get_crops,
-    resolve_goalkeepers_team_id,
-    run_ball_detection,
-    run_pitch_detection,
-    run_player_detection,
-    run_player_tracking,
-    run_radar,
-    run_team_classification,
-)
-from sports.annotators.soccer import draw_pass_network, draw_pitch_heatmap  # noqa: E402
-from sports.common.team import TeamClassifier  # noqa: E402
-from player_analysis import (  # noqa: E402
-    CONFIG as PITCH_CONFIG,
-    PlayerMatchAnalyzer,
-    ocr_available,
-)
-
-PARENT_DIR = _APP_DIR
-DATA_DIR = os.path.join(PARENT_DIR, 'data')
-DEMO_DIR = os.path.join(PARENT_DIR, 'demo_data')
-
-TEAM_NAMES = {0: "Équipe A", 1: "Équipe B"}
-TEAM_COLORS = {0: sv.Color.from_hex('#FF1493'), 1: sv.Color.from_hex('#00BFFF')}
-
-LOCAL_MODEL_PATHS = {
-    'player': PLAYER_DETECTION_MODEL_PATH,
-    'ball': BALL_DETECTION_MODEL_PATH,
-    'pitch': PITCH_DETECTION_MODEL_PATH,
-}
-
-# Google Drive file ids backing the same weights setup.sh downloads.
-MODEL_DOWNLOAD_INFO = {
-    'player': ('football-player-detection.pt', '17PXFNlx-jI7VjVo_vQnB1sONjRyvoB-q'),
-    'ball': ('football-ball-detection.pt', '1isw4wx-MK9h9LMr36VvIWlJD6ppUvw7V'),
-    'pitch': ('football-pitch-detection.pt', '1Ma5Kt86tgpdjCTKfum79YMgNnSjcoOyf'),
-}
-
-# Public Roboflow Universe model backing the same dataset referenced in the README.
-HOSTED_PLAYER_MODEL_ID_DEFAULT = "football-players-detection-3zvbc/10"
-
-PLAYER_ANALYSIS_MODE = "Analyse par joueur (numéros, passes, carte)"
-
-BASE_MODES = [
-    "Détection joueurs",
-    "Détection ballon",
-    "Suivi des joueurs (tracking)",
-    "Classification d'équipes",
-    "Détection du terrain",
-    "Radar (terrain + équipes)",
-]
-
-MODE_ICONS = {
-    "Détection joueurs": "🎯",
-    "Détection ballon": "⚪",
-    "Suivi des joueurs (tracking)": "🔎",
-    "Classification d'équipes": "👕",
-    "Détection du terrain": "🏟️",
-    "Radar (terrain + équipes)": "🗺️",
-    PLAYER_ANALYSIS_MODE: "🔢",
-}
-
-# Modes that can run against the hosted Roboflow API (player-detection model only).
-HOSTED_COMPATIBLE_MODES = {
-    "Détection joueurs",
-    "Suivi des joueurs (tracking)",
-    "Classification d'équipes",
-}
-
-
-def detect_device() -> str:
-    if torch.cuda.is_available():
-        return "cuda"
-    if getattr(torch.backends, "mps", None) is not None and torch.backends.mps.is_available():
-        return "mps"
-    return "cpu"
-
-
-def available_devices() -> list:
-    """Devices actually usable on this machine — offering "cuda"/"mps" when
-    there's no such hardware just lets users pick an option that's guaranteed
-    to crash with a raw PyTorch error."""
-    devices = ["cpu"]
-    if torch.cuda.is_available():
-        devices.append("cuda")
-    if getattr(torch.backends, "mps", None) is not None and torch.backends.mps.is_available():
-        devices.append("mps")
-    return devices
-
-
-def heavy_mode_available(device: str) -> bool:
-    """
-    The per-player analysis mode runs 3 models + tracking + OCR per frame,
-    which is only practical with a GPU. It's forced on with
-    FORCE_ENABLE_PLAYER_ANALYSIS=1 for advanced/patient CPU users, and off by
-    default anywhere a CUDA device isn't available (e.g. free cloud hosting).
-    """
-    if os.environ.get("FORCE_ENABLE_PLAYER_ANALYSIS") == "1":
-        return True
-    return device == "cuda"
-
-
-def hosted_api_available() -> bool:
-    try:
-        import inference  # noqa: F401
-        return True
-    except ImportError:
-        return False
-
-
-def get_hosted_model(model_id: str, api_key: str):
-    from inference import get_model
-    return get_model(model_id=model_id, api_key=api_key)
-
-
-def run_player_detection_hosted(
-    source_video_path: str, model, confidence: float, stride: int = 1
-) -> Iterator[np.ndarray]:
-    frame_generator = sv.get_video_frames_generator(
-        source_path=source_video_path, stride=stride)
-    for frame in frame_generator:
-        result = model.infer(frame, confidence=confidence)[0]
-        detections = sv.Detections.from_inference(result)
-
-        annotated_frame = frame.copy()
-        annotated_frame = BOX_ANNOTATOR.annotate(annotated_frame, detections)
-        annotated_frame = BOX_LABEL_ANNOTATOR.annotate(annotated_frame, detections)
-        yield annotated_frame
-
-
-def run_player_tracking_hosted(
-    source_video_path: str, model, confidence: float, stride: int = 1
-) -> Iterator[np.ndarray]:
-    frame_generator = sv.get_video_frames_generator(
-        source_path=source_video_path, stride=stride)
-    tracker = sv.ByteTrack(minimum_consecutive_frames=3)
-    for frame in frame_generator:
-        result = model.infer(frame, confidence=confidence)[0]
-        detections = sv.Detections.from_inference(result)
-        detections = tracker.update_with_detections(detections)
-
-        labels = [str(tracker_id) for tracker_id in detections.tracker_id]
-
-        annotated_frame = frame.copy()
-        annotated_frame = ELLIPSE_ANNOTATOR.annotate(annotated_frame, detections)
-        annotated_frame = ELLIPSE_LABEL_ANNOTATOR.annotate(
-            annotated_frame, detections, labels=labels)
-        yield annotated_frame
-
-
-def run_team_classification_hosted(
-    source_video_path: str, model, confidence: float, device: str, stride: int = 1
-) -> Iterator[np.ndarray]:
-    crop_generator = sv.get_video_frames_generator(
-        source_path=source_video_path, stride=STRIDE)
-
-    crops = []
-    for frame in crop_generator:
-        result = model.infer(frame, confidence=confidence)[0]
-        detections = sv.Detections.from_inference(result)
-        crops += get_crops(frame, detections[detections.class_id == PLAYER_CLASS_ID])
-        if len(crops) >= 320:
-            crops = crops[:320]
-            break
-
-    team_classifier = TeamClassifier(device=device)
-    team_classifier.fit(crops)
-
-    frame_generator = sv.get_video_frames_generator(
-        source_path=source_video_path, stride=stride)
-    tracker = sv.ByteTrack(minimum_consecutive_frames=3)
-    for frame in frame_generator:
-        result = model.infer(frame, confidence=confidence)[0]
-        detections = sv.Detections.from_inference(result)
-        detections = tracker.update_with_detections(detections)
-
-        players = detections[detections.class_id == PLAYER_CLASS_ID]
-        players_crops = get_crops(frame, players)
-        players_team_id = team_classifier.predict(players_crops)
-
-        goalkeepers = detections[detections.class_id == GOALKEEPER_CLASS_ID]
-        goalkeepers_team_id = resolve_goalkeepers_team_id(
-            players, players_team_id, goalkeepers) if len(goalkeepers) else np.array([])
-
-        referees = detections[detections.class_id == REFEREE_CLASS_ID]
-
-        detections = sv.Detections.merge([players, goalkeepers, referees])
-        color_lookup = np.array(
-            players_team_id.tolist() +
-            goalkeepers_team_id.tolist() +
-            [REFEREE_CLASS_ID] * len(referees)
-        )
-        labels = [str(tracker_id) for tracker_id in detections.tracker_id]
-
-        annotated_frame = frame.copy()
-        annotated_frame = ELLIPSE_ANNOTATOR.annotate(
-            annotated_frame, detections, custom_color_lookup=color_lookup)
-        annotated_frame = ELLIPSE_LABEL_ANNOTATOR.annotate(
-            annotated_frame, detections, labels, custom_color_lookup=color_lookup)
-        yield annotated_frame
-
-
-def required_local_models(mode: str) -> list:
-    needed = []
-    if mode in ("Détection joueurs", "Suivi des joueurs (tracking)",
-                "Classification d'équipes", "Radar (terrain + équipes)",
-                PLAYER_ANALYSIS_MODE):
-        needed.append('player')
-    if mode in ("Détection ballon", PLAYER_ANALYSIS_MODE):
-        needed.append('ball')
-    if mode in ("Détection du terrain", "Radar (terrain + équipes)", PLAYER_ANALYSIS_MODE):
-        needed.append('pitch')
-    return needed
-
-
-@st.cache_resource(show_spinner=False)
-def download_local_model(name: str) -> str:
-    """Downloads a model weight file once per running app instance (cached
-    across all sessions), so a fresh cloud deployment is self-sufficient
-    without shell access to run setup.sh."""
-    filename, file_id = MODEL_DOWNLOAD_INFO[name]
-    path = LOCAL_MODEL_PATHS[name]
-    if os.environ.get(f'FOOTBALL_{name.upper()}_MODEL') and not os.path.isfile(path):
-        raise FileNotFoundError(f'Modèle personnalisé introuvable : {path}')
-    if not os.path.isfile(path):
-        os.makedirs(DATA_DIR, exist_ok=True)
-        import gdown
-        gdown.download(id=file_id, output=path)
-    return path
-
-
-def ensure_local_models(names: list) -> list:
-    """Downloads any of `names` not already present locally. Returns the
-    subset that still failed to download."""
-    failed = []
-    for name in names:
-        try:
-            path = download_local_model(name)
-            if not os.path.isfile(path):
-                failed.append(name)
-        except Exception:
-            failed.append(name)
-    return failed
-
-
-def build_local_generator(mode: str, video_path: str, device: str, stride: int):
-    if mode == "Détection joueurs":
-        return run_player_detection(video_path, device, stride=stride)
-    if mode == "Détection ballon":
-        return run_ball_detection(video_path, device, stride=stride)
-    if mode == "Suivi des joueurs (tracking)":
-        return run_player_tracking(video_path, device, stride=stride)
-    if mode == "Classification d'équipes":
-        return run_team_classification(video_path, device, stride=stride)
-    if mode == "Détection du terrain":
-        return run_pitch_detection(video_path, device, stride=stride)
-    if mode == "Radar (terrain + équipes)":
-        return run_radar(video_path, device, stride=stride)
-    raise ValueError(mode)
-
-
-def build_hosted_generator(
-    mode: str, video_path: str, model, confidence: float, device: str, stride: int
-):
-    if mode == "Détection joueurs":
-        return run_player_detection_hosted(video_path, model, confidence, stride=stride)
-    if mode == "Suivi des joueurs (tracking)":
-        return run_player_tracking_hosted(video_path, model, confidence, stride=stride)
-    if mode == "Classification d'équipes":
-        return run_team_classification_hosted(
-            video_path, model, confidence, device, stride=stride)
-    raise ValueError(mode)
-
-
-def save_uploaded_video(uploaded_file) -> str:
-    suffix = os.path.splitext(uploaded_file.name)[1] or '.mp4'
-    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
-    tmp.write(uploaded_file.read())
-    tmp.close()
-    return tmp.name
-
-
-def list_demos() -> list:
-    if not os.path.isdir(DEMO_DIR):
-        return []
-    return sorted(
-        name for name in os.listdir(DEMO_DIR)
-        if os.path.isfile(os.path.join(DEMO_DIR, name, 'stats.json'))
-    )
-
-
-def render_demo_gallery() -> None:
-    demos = list_demos()
-    if not demos:
-        st.info(
-            "Aucun exemple pré-calculé disponible pour l'instant — utilise "
-            "l'onglet « Analyser ma vidéo »."
-        )
-        return
-
-    st.caption(
-        "Résultats déjà calculés une fois en local (GPU) — rien ne tourne "
-        "ici, c'est instantané. Utile pour démontrer l'app sans attendre un "
-        "traitement CPU."
-    )
-    st.caption("Ces exemples proviennent du pipeline historique. Ils ne constituent pas "
-               "une évaluation des nouveaux modèles YOLO11 ou de BoT-SORT.")
-    demo_name = st.selectbox("Choisir un extrait", demos)
-    demo_dir = os.path.join(DEMO_DIR, demo_name)
-
-    with open(os.path.join(demo_dir, 'stats.json'), encoding='utf-8') as f:
-        stats = json.load(f)
-
-    video_path = os.path.join(demo_dir, 'annotated.mp4')
-    if os.path.isfile(video_path):
-        st.video(video_path)
-
-    st.subheader("🏟️ Vue d'équipe")
-    possession = stats['possession_pct']
-    col_a, col_b = st.columns(2)
-    col_a.metric(f"Possession — {TEAM_NAMES[0]}", f"{possession.get('0', 0):.0f}%")
-    col_b.metric(f"Possession — {TEAM_NAMES[1]}", f"{possession.get('1', 0):.0f}%")
-
-    with st.container(border=True):
-        st.markdown("**Zones d'activité collectives**")
-        heat_col_a, heat_col_b = st.columns(2)
-        for col, team_id in ((heat_col_a, 0), (heat_col_b, 1)):
-            path = os.path.join(demo_dir, f'heatmap_team_{team_id}.jpg')
-            with col:
-                if os.path.isfile(path):
-                    st.image(path, caption=TEAM_NAMES[team_id], **STRETCH_WIDTH)
-                else:
-                    st.info(f"Pas assez de données pour {TEAM_NAMES[team_id]}.")
-
-    with st.container(border=True):
-        st.markdown("**Réseau de passes**")
-        net_team_id = st.radio(
-            "Équipe", [0, 1], format_func=lambda t: TEAM_NAMES[t],
-            horizontal=True, key="demo_pass_network_team",
-        )
-        path = os.path.join(demo_dir, f'pass_network_team_{net_team_id}.jpg')
-        if os.path.isfile(path):
-            st.image(path, **STRETCH_WIDTH)
-        else:
-            st.info(
-                "Pas assez de passes détectées pour construire un réseau "
-                f"pour {TEAM_NAMES[net_team_id]}."
-            )
-
-    st.subheader("📊 Statistiques joueurs")
-    rows = [{
-        "Joueur": p['label'],
-        "Équipe": TEAM_NAMES.get(p['team_id'], "?"),
-        "Touches de balle": p['touches'],
-        "Passes faites": p['passes_made'],
-        "Passes reçues": p['passes_received'],
-        "Distance parcourue (m)": p['distance_m'],
-        "Vitesse moyenne (km/h)": p['avg_speed_kmh'],
-    } for p in stats['players']]
-    st.dataframe(rows, **STRETCH_WIDTH, hide_index=True)
-
-
-# --------------------------------------------------------------------------
-# Page setup
-# --------------------------------------------------------------------------
-
-st.set_page_config(
-    page_title="Soccer AI — Analyse vidéo",
-    page_icon="⚽",
-    layout="wide",
-    initial_sidebar_state="expanded",
-)
-
-DETECTED_DEVICE = detect_device()
-AVAILABLE_DEVICES = available_devices()
-HEAVY_MODE_ENABLED = heavy_mode_available(DETECTED_DEVICE)
-
-MODES = BASE_MODES + ([PLAYER_ANALYSIS_MODE] if HEAVY_MODE_ENABLED else [])
-
-DEVICE_LABELS = {"cuda": "GPU (CUDA)", "mps": "GPU (Apple MPS)", "cpu": "CPU"}
-
-header_left, header_right = st.columns([4, 1.3])
-with header_left:
-    st.title("⚽ Soccer AI")
-    st.caption(
-        "Détection, suivi et analyse tactique de matchs de football par IA — "
-        "upload une vidéo, choisis un mode, regarde l'analyse se construire en direct."
-    )
-with header_right:
-    st.markdown(
-        f"<div style='text-align:right; padding-top: 0.6rem;'>"
-        f"<span style='background:rgba(34,197,94,0.15); color:#22C55E; "
-        f"padding:4px 10px; border-radius:999px; font-size:0.85rem; font-weight:600;'>"
-        f"● {DEVICE_LABELS.get(DETECTED_DEVICE, DETECTED_DEVICE)}</span></div>",
-        unsafe_allow_html=True,
-    )
-
-capability_cols = st.columns(len(BASE_MODES) + 1)
-for col, name in zip(capability_cols, BASE_MODES + [PLAYER_ANALYSIS_MODE]):
-    with col:
-        enabled = name != PLAYER_ANALYSIS_MODE or HEAVY_MODE_ENABLED
-        icon = MODE_ICONS[name]
-        style = "opacity:1;" if enabled else "opacity:0.35;"
-        st.markdown(
-            f"<div style='{style} text-align:center; font-size:0.78rem; line-height:1.3;'>"
-            f"<div style='font-size:1.4rem'>{icon}</div>{name.split('(')[0].strip()}</div>",
-            unsafe_allow_html=True,
-        )
-
-if not HEAVY_MODE_ENABLED:
-    st.caption(
-        "🔢 L'analyse par joueur (numéros de maillot, passes, cartographie) est "
-        "désactivée ici — elle nécessite un GPU pour rester praticable. "
-        "Lance l'app en local avec un GPU CUDA pour l'activer."
-    )
-
-st.divider()
-
-# --------------------------------------------------------------------------
-# Sidebar — configuration
-# --------------------------------------------------------------------------
+APP_DIR = Path(__file__).resolve().parent
+for path in (APP_DIR, APP_DIR.parents[1]):
+    if str(path) not in sys.path:
+        sys.path.insert(0, str(path))
+
+from tactical_dashboard import WIDTH, load_analysis, render_dashboard
+
+st.set_page_config(page_title='Football AI · Analyse tactique', page_icon='⚽',
+                   layout='wide', initial_sidebar_state='expanded')
+st.markdown('''<style>
+[data-testid="stAppViewContainer"]{font-variant-numeric:tabular-nums}
+.block-container{padding:1.7rem 2rem 2rem;max-width:1560px}
+h1{font-size:1.85rem!important;letter-spacing:-.035em;padding-top:0!important}
+h2,h3{letter-spacing:-.02em}h3{font-size:1.08rem!important;margin-top:.2rem}
+[data-testid="stSidebar"]{border-right:1px solid #293441}
+[data-testid="stSidebar"] .block-container{padding-top:1.6rem}
+[data-testid="stSidebar"] h1{font-size:1.35rem!important}
+[data-testid="stMetricValue"]{font-size:1.5rem;font-weight:600}
+[data-testid="stMetricLabel"]{color:#A7B4C4}
+[data-testid="stCaptionContainer"]{color:#A7B4C4}
+[data-baseweb="tab-list"]{gap:1.75rem;border-bottom:1px solid #293441}
+[data-baseweb="tab"]{padding:10px 0;font-size:14px}
+[data-testid="stMetric"]{padding:8px 0}
+[data-testid="stSidebar"] [data-testid="stImage"] img{border-radius:6px}
+@media(max-width:720px){.block-container{padding:4rem 1rem 1rem}[data-baseweb="tab-list"]{gap:1rem;overflow-x:auto}h1{font-size:1.5rem!important}}
+</style>''', unsafe_allow_html=True)
+
+DEMO_DIR = APP_DIR / 'demo_data'
+CLIPS = {'08fd33_0': 'Extrait 01', '0bfacc_0': 'Extrait 02', '121364_0': 'Extrait 03',
+         '2e57b9_0': 'Extrait 04', '573e61_0': 'Extrait 05'}
+demos = [p for p in sorted(DEMO_DIR.iterdir()) if p.is_dir() and (p / 'analysis.json').is_file()] if DEMO_DIR.exists() else []
 
 with st.sidebar:
-    st.header("⚙️ Configuration")
-
-    with st.expander("🎯 Mode d'analyse", expanded=True):
-        mode = st.selectbox(
-            "Mode", MODES,
-            format_func=lambda m: f"{MODE_ICONS.get(m, '')} {m}",
-        )
-
-        model_source = st.radio(
-            "Source du modèle",
-            ["Local (recommandé)", "API Roboflow hébergée"],
-            help=(
-                "Local : télécharge et utilise les poids YOLO (une seule fois), "
-                "tourne hors-ligne et est plus rapide. API hébergée : pas de "
-                "téléchargement mais dépend du réseau, et ne couvre que les "
-                "modes basés sur la détection de joueurs."
-            ),
-        )
-        use_hosted = model_source == "API Roboflow hébergée"
-
-        if use_hosted and not hosted_api_available():
-            st.warning(
-                "Le paquet `inference` n'est pas installé : l'API hébergée "
-                "n'est pas disponible ici (`pip install inference`). "
-                "Utilisation des modèles locaux."
-            )
-            use_hosted = False
-
-        if use_hosted and mode not in HOSTED_COMPATIBLE_MODES:
-            st.warning(
-                f"« {mode} » nécessite les modèles locaux (ballon/terrain non "
-                "disponibles via l'API hébergée dans cette app)."
-            )
-
-        if mode == PLAYER_ANALYSIS_MODE:
-            st.caption(
-                "⚠️ Mode le plus lourd : 3 modèles + tracking + OCR par frame. "
-                "Même sur GPU, compte plusieurs minutes pour un court extrait."
-            )
-            if not ocr_available():
-                st.info(
-                    "`easyocr` n'est pas installé : les numéros de maillot ne "
-                    "seront pas lus (joueurs identifiés par ID de suivi "
-                    "uniquement)."
-                )
-
-        api_key = ""
-        hosted_model_id = HOSTED_PLAYER_MODEL_ID_DEFAULT
-        confidence = 0.3
-        if use_hosted:
-            default_key = os.environ.get("ROBOFLOW_API_KEY", "")
-            try:
-                default_key = st.secrets.get("ROBOFLOW_API_KEY", default_key)
-            except Exception:
-                pass
-            api_key = st.text_input(
-                "Clé API Roboflow", value=default_key, type="password",
-                help="Définie via la variable d'environnement ROBOFLOW_API_KEY "
-                     "ou st.secrets['ROBOFLOW_API_KEY'], modifiable ici.",
-            )
-            hosted_model_id = st.text_input("ID du modèle hébergé", value=hosted_model_id)
-            confidence = st.slider("Seuil de confiance", 0.1, 0.9, 0.3, 0.05)
-
-    with st.expander("🚀 Performance", expanded=False):
-        device = st.selectbox(
-            "Device", AVAILABLE_DEVICES,
-            index=AVAILABLE_DEVICES.index(DETECTED_DEVICE),
-            format_func=lambda d: DEVICE_LABELS.get(d, d),
-            help="Seuls les devices réellement disponibles sur cette machine "
-                 "sont proposés.",
-        )
-        stride = st.slider(
-            "Traiter 1 frame sur N", 1, 10, 2 if device == "cpu" else 1,
-            help="Un stride plus élevé accélère le traitement (moins d'images "
-                 "analysées) au prix d'un rendu moins fluide et d'un tracking "
-                 "un peu moins stable.",
-        )
-        display_every = st.slider(
-            "Rafraîchir l'aperçu toutes les N frames", 1, 20, 1,
-            help="Limite la fréquence de mise à jour de l'image affichée pour "
-                 "une UI plus fluide (le traitement, lui, ne saute aucune "
-                 "frame sélectionnée par le stride).",
-        )
-
-    with st.expander("💾 Export", expanded=False):
-        save_output = st.checkbox("Exporter la vidéo annotée", value=True)
-
-    tracker_backend = "bytetrack"
-    enable_ocr = True
-    if mode == PLAYER_ANALYSIS_MODE:
-        with st.expander("Suivi et identité", expanded=True):
-            tracker_backend = st.selectbox(
-                "Méthode de suivi", ["bytetrack", "botsort"],
-                format_func=lambda value: "ByteTrack — rapide" if value == "bytetrack" else "BoT-SORT — mouvement caméra + apparence",
-            )
-            enable_ocr = st.checkbox("Lire les numéros de maillot", value=ocr_available(), disabled=not ocr_available())
-            st.caption("Un ID reste une piste de suivi tant que le maillot est incertain. "
-                       "La ré-identification visuelle aide le suivi mais ne garantit pas l'identité après une coupure.")
-
+    st.title('Football AI')
+    st.caption('L’espace d’analyse de vos extraits')
+    page = st.radio('Espace de travail', ['Extraits analysés', 'Importer une vidéo'], label_visibility='collapsed')
     st.divider()
-    st.caption(
-        "Les modèles locaux manquants sont téléchargés automatiquement au "
-        "premier lancement d'un mode (~130 Mo chacun, une seule fois)."
-    )
+    if page == 'Extraits analysés' and demos:
+        selected = st.selectbox('Bibliothèque', demos, format_func=lambda p: CLIPS.get(p.name, p.name), key='demo')
+        data_file = selected / 'analysis.json'
+        data = load_analysis(str(data_file), data_file.stat().st_mtime_ns)
+        if (selected / 'preview.jpg').is_file():
+            st.image(str(selected / 'preview.jpg'), **WIDTH)
+        st.markdown(f'**{data["duration_s"]:g} secondes** · {len(data["frames"])} observations')
+        st.caption('Calculé sur GPU, prêt à explorer. Aucun calcul IA n’est relancé pendant la lecture.')
+        with st.expander('À propos de cet extrait'):
+            st.write(f'Source : {data["source_video"]}')
+            st.write('Suivi BoT-SORT, lecture des maillots et calibration du terrain. Les mesures restent des estimations.')
+    st.divider()
+    st.caption('Développé par Mohammed ADDI')
+    st.markdown('[Code & méthode](https://github.com/ai-mohammed/Football-AI)')
+    st.caption('Version · Atelier tactique 3')
 
-tab_demo, tab_live = st.tabs(["🎬 Exemples pré-calculés", "📤 Analyser ma vidéo"])
-
-with tab_demo:
-    render_demo_gallery()
-
-with tab_live:
-    # --------------------------------------------------------------------------
-    # Main area — upload & run
-    # --------------------------------------------------------------------------
-
-    with st.container(border=True):
-        uploaded_file = st.file_uploader(
-            "📤 Vidéo de match", type=["mp4", "avi", "mov", "mkv"],
-            help="Formats supportés : MP4, AVI, MOV, MKV.",
-        )
-        start = st.button(
-            "▶️ Lancer l'analyse", disabled=uploaded_file is None, type="primary",
-            **STRETCH_WIDTH,
-        )
-
-    if start and uploaded_file is not None:
-        for result_key in ('player_report', 'team_report', 'analysis_diagnostics'):
-            st.session_state.pop(result_key, None)
-        if use_hosted and mode not in HOSTED_COMPATIBLE_MODES:
-            st.info(
-                f"Le mode « {mode} » n'est pas disponible via l'API hébergée : "
-                "utilisation des modèles locaux."
-            )
-            use_hosted = False
-
-        if use_hosted and not api_key:
-            st.error("Renseigne une clé API Roboflow pour utiliser le modèle hébergé.")
-            st.stop()
-
-        if not use_hosted:
-            needed = required_local_models(mode)
-            missing = [n for n in needed if not os.path.isfile(LOCAL_MODEL_PATHS[n])]
-            if missing:
-                with st.spinner(
-                    f"Téléchargement des modèles nécessaires ({', '.join(missing)})… "
-                    "~130 Mo chacun, une seule fois."
-                ):
-                    failed = ensure_local_models(missing)
-                if failed:
-                    st.error(
-                        f"Échec du téléchargement automatique des modèles : "
-                        f"{', '.join(failed)}. Vérifie la connexion réseau, ou "
-                        "télécharge-les manuellement via `./setup.sh` (voir README) "
-                        "puis relance l'app."
-                    )
-                    st.stop()
-
-        video_path = save_uploaded_video(uploaded_file)
-        video_info = sv.VideoInfo.from_video_path(video_path)
-        total_to_process = max(1, -(-video_info.total_frames // stride))
-
-        analyzer: Optional[PlayerMatchAnalyzer] = None
-        if mode == PLAYER_ANALYSIS_MODE:
-            try:
-                analyzer = PlayerMatchAnalyzer(
-                    player_model_path=LOCAL_MODEL_PATHS['player'],
-                    pitch_model_path=LOCAL_MODEL_PATHS['pitch'],
-                    ball_model_path=LOCAL_MODEL_PATHS['ball'],
-                    device=device,
-                    tracker_backend=tracker_backend,
-                    enable_ocr=enable_ocr,
-                )
-            except (ValueError, FileNotFoundError) as error:
-                st.error(str(error))
-                st.stop()
-            frame_generator = analyzer.process(video_path, stride=stride)
-        elif use_hosted:
-            model = get_hosted_model(hosted_model_id, api_key)
-            frame_generator = build_hosted_generator(
-                mode, video_path, model, confidence, device, stride)
-        else:
-            frame_generator = build_local_generator(mode, video_path, device, stride)
-
-        st.subheader("📽️ Traitement en direct")
-        with st.container(border=True):
-            image_placeholder = st.empty()
-            progress_bar = st.progress(0.0)
-            metric_cols = st.columns(3)
-            frame_metric = metric_cols[0].empty()
-            fps_metric = metric_cols[1].empty()
-            elapsed_metric = metric_cols[2].empty()
-
-        sink: Optional[sv.VideoSink] = None
-        output_path = None
-        if save_output:
-            output_path = tempfile.NamedTemporaryFile(delete=False, suffix='.mp4').name
-            export_info = sv.VideoInfo(width=video_info.width, height=video_info.height,
-                                       fps=video_info.fps / stride, total_frames=total_to_process)
-            sink = sv.VideoSink(output_path, export_info)
-            sink.__enter__()
-
-        needs_warm_up = mode in (
-            "Classification d'équipes", "Radar (terrain + équipes)", PLAYER_ANALYSIS_MODE)
-        start_time = time.time()
-        frame_count = 0
+if page == 'Extraits analysés':
+    st.title('Analyse tactique')
+    if not demos:
+        st.info('La bibliothèque est en cours de préparation. Vous pouvez importer un extrait.')
+    else:
+        st.caption(f'{CLIPS.get(selected.name, selected.name)} · {data["duration_s"]:g} s · Vidéo, positions et actions au même instant')
+        render_dashboard(data, selected / 'annotated.mp4', selected.name)
+else:
+    st.title('Analyser un extrait')
+    st.write('Importez votre vidéo, choisissez un court passage, puis explorez le même tableau de bord.')
+    uploaded = st.file_uploader('Vidéo de football', type=['mp4', 'mov', 'avi', 'mkv'],
+                                help='300 Mo maximum. Une vue large du terrain donne des positions plus exploitables.')
+    if uploaded is None:
+        st.info('Pour une démonstration immédiate, ouvrez « Extraits analysés » dans le menu.')
+    else:
         try:
-            if needs_warm_up:
-                with st.spinner(
-                    "Analyse des équipes en cours (échantillonnage des joueurs)…"
-                ):
-                    first_frame = next(frame_generator)
-                frame_count = 1
-                if sink is not None:
-                    sink.write_frame(first_frame)
-                image_placeholder.image(
-                    first_frame, channels="BGR", **STRETCH_WIDTH)
-
-            for frame in frame_generator:
-                frame_count += 1
-                if sink is not None:
-                    sink.write_frame(frame)
-                if frame_count % display_every == 0 or frame_count >= total_to_process:
-                    image_placeholder.image(frame, channels="BGR", **STRETCH_WIDTH)
-                    elapsed = time.time() - start_time
-                    fps_proc = frame_count / elapsed if elapsed > 0 else 0.0
-                    frame_metric.metric("Frames", f"{frame_count}/{total_to_process}")
-                    fps_metric.metric("Vitesse", f"{fps_proc:.1f} fps")
-                    elapsed_metric.metric("Temps écoulé", f"{elapsed:.0f}s")
-                progress_bar.progress(min(frame_count / total_to_process, 1.0))
-        finally:
-            if sink is not None:
-                sink.__exit__(None, None, None)
-
-        st.success(f"✅ Traitement terminé : {frame_count} frames analysées en "
-                   f"{time.time() - start_time:.0f}s.")
-
-        if save_output and output_path:
-            with open(output_path, "rb") as f:
-                st.download_button(
-                    "⬇️ Télécharger la vidéo annotée",
-                    data=f,
-                    file_name=f"soccer_ai_{mode.replace(' ', '_')}.mp4",
-                    mime="video/mp4",
-                )
-
-        if analyzer is not None:
-            st.session_state['player_report'] = analyzer.report()
-            st.session_state['team_report'] = analyzer.team_report()
-            st.session_state['analysis_diagnostics'] = analyzer.diagnostics()
-        else:
-            st.session_state.pop('player_report', None)
-            st.session_state.pop('team_report', None)
-            st.session_state.pop('analysis_diagnostics', None)
-    elif uploaded_file is None:
-        st.info("👆 Upload une vidéo de match pour commencer.")
-
-    # --------------------------------------------------------------------------
-    # Team dashboard (persists across reruns, e.g. switching the team selector,
-    # without re-running the whole video pipeline)
-    # --------------------------------------------------------------------------
-
-    if st.session_state.get('team_report') is not None:
-        st.divider()
-        st.subheader("🏟️ Vue d'équipe")
-        team_report = st.session_state['team_report']
-
-        possession = team_report['possession_pct']
-        col_a, col_b = st.columns(2)
-        col_a.metric(f"Possession — {TEAM_NAMES[0]}", f"{possession.get(0, 0):.0f}%")
-        col_b.metric(f"Possession — {TEAM_NAMES[1]}", f"{possession.get(1, 0):.0f}%")
-        st.progress(possession.get(0, 0) / 100 if possession.get(0, 0) else 0.0)
-        st.caption(
-            "Part du temps attribué à une équipe par proximité joueur–ballon. "
-            "Le temps sans attribution est exclu. Les passes sont des transitions probables de contrôle."
-        )
-
-        diagnostics = st.session_state.get('analysis_diagnostics', {})
-        with st.expander("Fiabilité et données de l'analyse"):
-            a, b, c = st.columns(3)
-            a.metric("Terrain calibré", f"{diagnostics.get('calibration_coverage_pct', 0):.0f}% des images")
-            b.metric("Identités non résolues", diagnostics.get('unresolved_identities', 0))
-            c.metric("Possession indéterminée", f"{diagnostics.get('unknown_possession_seconds', 0):.1f} s")
-            st.caption("Les distances couvrent uniquement les séquences observées et calibrées, "
-                       "sur un terrain de référence de 120 × 70 m. Un réseau peut compter plus de "
-                       "11 pistes si certaines identités restent non résolues. Aucun regroupement n'est forcé.")
-            payload = {'diagnostics': diagnostics, 'players': st.session_state.get('player_report', [])}
-            st.download_button("Télécharger l'analyse JSON", json.dumps(
-                payload, ensure_ascii=False, indent=2,
-                default=lambda value: value.tolist() if isinstance(value, np.ndarray) else value.item()),
-                file_name="football_analysis.json", mime="application/json")
-
-        with st.container(border=True):
-            st.markdown("**Zones d'activité collectives**")
-            heat_col_a, heat_col_b = st.columns(2)
-            for col, team_id in ((heat_col_a, 0), (heat_col_b, 1)):
-                xy = team_report['team_heatmaps'].get(team_id, np.empty((0, 2)))
-                with col:
-                    if len(xy):
-                        heatmap = draw_pitch_heatmap(PITCH_CONFIG, xy=xy)
-                        st.image(heatmap, channels="BGR", caption=TEAM_NAMES[team_id],
-                                  **STRETCH_WIDTH)
-                    else:
-                        st.info(f"Pas assez de données pour {TEAM_NAMES[team_id]}.")
-
-        with st.container(border=True):
-            st.markdown("**Réseau de passes**")
-            network_team_id = st.radio(
-                "Équipe", [0, 1], format_func=lambda t: TEAM_NAMES[t],
-                horizontal=True, key="pass_network_team",
-            )
-            network = team_report['pass_networks'].get(
-                network_team_id, {'node_xy': np.empty((0, 2)), 'node_labels': [], 'edges': []})
-            if len(network['node_xy']) and network['edges']:
-                diagram = draw_pass_network(
-                    PITCH_CONFIG,
-                    node_xy=network['node_xy'],
-                    node_labels=network['node_labels'],
-                    edges=network['edges'],
-                    node_color=TEAM_COLORS[network_team_id],
-                )
-                st.image(diagram, channels="BGR", **STRETCH_WIDTH)
-            else:
-                st.info(
-                    "Pas assez de passes détectées pour construire un réseau "
-                    f"pour {TEAM_NAMES[network_team_id]}."
-                )
-
-    # --------------------------------------------------------------------------
-    # Player-by-player dashboard (persists across reruns, e.g. changing the
-    # player selector below, without re-running the whole video pipeline)
-    # --------------------------------------------------------------------------
-
-    if st.session_state.get('player_report') is not None:
-        st.divider()
-        st.subheader("📊 Étude joueur par joueur")
-        report = st.session_state['player_report']
-
-        if not report:
-            st.info("Aucun joueur suffisamment suivi pour établir des statistiques.")
-        else:
-            rows = []
-            row_labels = []
-            for p in report:
-                label = f"#{p['jersey_number']}" if p['jersey_number'] else f"ID {p['tracker_ids'][0]}"
-                row_labels.append(f"{TEAM_NAMES.get(p['team_id'], '?')} · {label} · piste {p['identity_id']}")
-                rows.append({
-                    "Joueur": label,
-                    "Équipe": TEAM_NAMES.get(p['team_id'], "?"),
-                    "Prises de contrôle estimées": p['touches'],
-                    "Passes probables": p['passes_made'],
-                    "Passes reçues": p['passes_received'],
-                    "Distance observée (m)": round(p['distance_m'], 1),
-                    "Vitesse moyenne (km/h)": p.get('avg_speed_kmh', 0.0),
-                })
-
-            with st.container(border=True):
-                st.dataframe(rows, **STRETCH_WIDTH, hide_index=True)
-
-            with st.container(border=True):
-                selected_label = st.selectbox("Cartographie du joueur", row_labels)
-                selected = report[row_labels.index(selected_label)]
-
-                col1, col2, col3, col4 = st.columns(4)
-                col1.metric("Contrôles estimés", selected['touches'])
-                col2.metric(
-                    "Passes faites / reçues",
-                    f"{selected['passes_made']} / {selected['passes_received']}")
-                col3.metric("Distance observée", f"{selected['distance_m']:.1f} m")
-                col4.metric(
-                    "Vitesse moyenne", f"{selected['avg_speed_kmh']:.1f} km/h" if selected.get('avg_speed_kmh') is not None else "Indéterminée")
-
-                if len(selected['trajectory']):
-                    heatmap = draw_pitch_heatmap(PITCH_CONFIG, xy=selected['trajectory'])
-                    st.image(
-                        heatmap, channels="BGR",
-                        caption=f"Zones d'activité sur le terrain — {selected_label}",
-                        **STRETCH_WIDTH,
-                    )
-                else:
-                    st.info("Pas assez de données de position pour ce joueur.")
-
-st.divider()
-st.caption(
-    "Soccer AI — construit sur "
-    "[Ultralytics YOLO](https://docs.ultralytics.com/), "
-    "[Supervision](https://github.com/roboflow/supervision) et "
-    "[SigLIP](https://huggingface.co/docs/transformers/en/model_doc/siglip)."
-)
+            from analysis_service import analyze_upload, probe_video, resolve_device
+            from player_analysis import ocr_available
+            contents = uploaded.getvalue()
+            fingerprint = hashlib.sha256(contents).hexdigest()[:16]
+            if st.session_state.get('upload_fingerprint') != fingerprint:
+                info = probe_video(contents, Path(uploaded.name).suffix.lower())
+                st.session_state.update(upload_fingerprint=fingerprint, upload_info=info)
+                st.session_state.pop('upload_result', None)
+            info = st.session_state['upload_info']
+            gpu = resolve_device('auto').startswith('cuda')
+            maximum = min(30. if gpu else 8., info['duration'])
+            st.caption(f'Vidéo : {info["duration"]:.1f} s · {info["width"]} × {info["height"]} · {"GPU disponible" if gpu else "Calcul sur CPU : extrait limité à 8 s, traitement plus lent"}')
+            a, b = st.columns(2)
+            start = a.number_input('Début du passage (s)', min_value=0., max_value=max(0., info['duration']-.1),
+                                   value=0., step=.5, key=f'start_{fingerprint}')
+            duration = b.number_input('Durée à analyser (s)', min_value=.1,
+                max_value=max(.1, min(maximum, info['duration']-start)),
+                value=min(5., max(.1, min(maximum, info['duration']-start))), step=.5, key=f'duration_{fingerprint}_{start}')
+            with st.expander('Réglages de l’analyse'):
+                tracker = st.selectbox('Suivi', ['bytetrack', 'botsort'],
+                    format_func=lambda t: 'ByteTrack · rapide' if t == 'bytetrack' else 'BoT-SORT · suivi avec apparence')
+                stride = st.select_slider('Échantillonnage : une image sur', [1, 2, 3, 4, 5], value=2 if gpu else 4)
+                enable_ocr = st.checkbox('Lire les numéros de maillot', value=ocr_available(), disabled=not ocr_available())
+                if not ocr_available():
+                    st.caption('La lecture de maillots n’est pas installée sur cet hébergement. Les pistes conservent des IDs.')
+            if st.button('Analyser ce passage', type='primary'):
+                with st.status('Préparation des modèles et des équipes…', expanded=True) as status:
+                    progress = st.progress(0., text='Première analyse : le téléchargement des modèles peut prendre quelques minutes.')
+                    result = analyze_upload(contents, uploaded.name, start, duration, stride, tracker, enable_ocr,
+                        lambda value: progress.progress(value, text=f'Analyse des images · {value:.0%}'))
+                    result['id'] = f'{fingerprint}_{uuid4().hex[:8]}'
+                    st.session_state['upload_result'] = result
+                    status.update(label='Extrait analysé', state='complete', expanded=False)
+            if st.session_state.get('upload_result'):
+                result = st.session_state['upload_result']
+                st.divider()
+                st.subheader('Votre analyse')
+                source_start = result['data'].get('source_start_s', 0.)
+                st.caption(f'Passage source {source_start:.1f}–{source_start+result["data"]["duration_s"]:.1f} s. Le lecteur ci-dessous commence à 0 s.')
+                render_dashboard(result['data'], result['video'], result['id'])
+        except Exception as exc:
+            st.error(f'Analyse indisponible : {exc}')
+            st.caption('Essayez un extrait MP4 plus court ou consultez un exemple déjà analysé.')

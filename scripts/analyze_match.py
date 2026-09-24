@@ -55,13 +55,11 @@ def main():
             sink.write_frame(frame)
             if index == 0:
                 cv2.imwrite(str(output / "preview.jpg"), frame)
-    payload = {"schema_version": 2, "source_video": Path(args.video).name,
-               "stride": args.stride, "source_fps": info.fps,
-               "elapsed_seconds_including_warmup": round(time.perf_counter() - started, 2),
-               "diagnostics": analyzer.diagnostics(), "players": analyzer.report(),
-               "teams": analyzer.team_report()}
+    payload = analyzer.export(args.video, info.fps, args.stride)
+    payload['elapsed_seconds_including_warmup'] = round(time.perf_counter() - started, 2)
+    payload['teams'] = analyzer.team_report()
     (output / "analysis.json").write_text(json.dumps(payload, indent=2, default=json_value), encoding="utf-8")
-    print(json.dumps({k: v for k, v in payload.items() if k not in ("players", "teams")}, default=json_value, indent=2))
+    print(json.dumps({k: v for k, v in payload.items() if k not in ("players", "teams", "frames")}, default=json_value, indent=2))
 
 
 if __name__ == "__main__":

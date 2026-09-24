@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="fr">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+:root{color-scheme:dark;font:14px/1.5 system-ui,sans-serif;color:#e6edf3;background:#0e1117}
+*{box-sizing:border-box}body{margin:0}button,input,select{font:inherit}button,select{color:#e6edf3;background:#161b22;border:1px solid #465362;border-radius:6px;padding:7px 10px;cursor:pointer}button:hover{background:#25313a}button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid #22c55e;outline-offset:3px}
+.workspace{display:grid;grid-template-columns:1.18fr 1fr;gap:20px;align-items:start}video{display:block;width:100%;aspect-ratio:16/9;background:#070a0d;border-radius:8px}.label{display:flex;justify-content:space-between;gap:10px;align-items:center;margin:0 0 9px;font-size:14px}.muted{color:#a7b4c4}.pitch{background:#122a25;border:1px solid #39584f;border-radius:8px;overflow:hidden}svg{display:block;width:100%;height:auto}.toolbar{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-top:10px}.toolbar output{font-variant-numeric:tabular-nums;min-width:82px}.scrub{width:100%;accent-color:#22c55e;margin:12px 0 0;cursor:pointer}.legend{display:flex;flex-wrap:wrap;gap:16px;font-size:12px;margin-top:9px;color:#b6c1cf}.dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:5px}.status{color:#a7b4c4;font-size:12px;min-height:18px;margin-top:6px}.events{display:flex;gap:8px;overflow-x:auto;padding:10px 0 4px;scrollbar-width:thin}.events button{white-space:nowrap;font-size:12px;min-height:36px}.empty{color:#a7b4c4;font-size:13px;padding:8px 0}.event-time{color:#86e6a9;font-variant-numeric:tabular-nums;margin-right:6px}.section-label{font-weight:600;margin-top:12px;font-size:13px}#error{color:#ffc380}label{cursor:pointer}input[type=checkbox]{accent-color:#22c55e}
+@media(max-width:720px){.workspace{grid-template-columns:1fr;gap:16px}.label{font-size:13px}.toolbar button{min-height:40px}}@media(prefers-reduced-motion:reduce){*{scroll-behavior:auto}}
+</style></head>
+<body>
+<div class="workspace">
+ <section aria-label="Vidéo de l’extrait">
+  <div class="label"><strong>Vidéo annotée</strong><span class="muted" id="window"></span></div>
+  <video id="video" controls playsinline preload="metadata" aria-label="Vidéo de football annotée"></video>
+  <label class="muted" for="scrub" style="font-size:12px;display:block;margin-top:8px">Position dans l’extrait</label>
+  <input id="scrub" class="scrub" type="range" min="0" max="12" value="0" step="0.04" aria-label="Position dans l’extrait">
+  <div class="toolbar"><button id="play" type="button">Lire</button><button id="back" type="button" aria-label="Image précédente">− image</button><button id="forward" type="button" aria-label="Image suivante">+ image</button><output id="clock" aria-label="Temps vidéo">0.00 s</output><select id="speed" aria-label="Vitesse de lecture"><option value="0.5">× 0,5</option><option value="1" selected>× 1</option><option value="2">× 2</option></select></div>
+  <div id="error" role="status"></div>
+ </section>
+ <section aria-label="Terrain synchronisé">
+  <div class="label"><strong>Positions sur le terrain</strong><label class="muted"><input id="trails" type="checkbox" checked> Traces 2 s</label></div>
+  <div class="pitch"><svg id="pitch" viewBox="-5 -5 130 80" role="img" aria-label="Positions des joueurs synchronisées avec la vidéo">
+   <g fill="none" stroke="#64847a" stroke-width=".32"><rect x="0" y="0" width="120" height="70"/><path d="M60 0V70"/><circle cx="60" cy="35" r="9.15"/><rect x="0" y="14.84" width="16.5" height="40.32"/><rect x="103.5" y="14.84" width="16.5" height="40.32"/><rect x="0" y="25.84" width="5.5" height="18.32"/><rect x="114.5" y="25.84" width="5.5" height="18.32"/><path d="M0 31.34H-2V38.66H0 M120 31.34H122V38.66H120"/></g>
+   <g id="paths"></g><g id="people"></g><g id="ball"></g>
+   <text id="unavailable" x="60" y="35" text-anchor="middle" fill="#e6edf3" font-size="3.2"></text>
+  </svg></div>
+  <div class="legend"><span><i class="dot" style="background:#ff1493"></i>Équipe A</span><span><i class="dot" style="background:#00bfff"></i>Équipe B</span><span><i class="dot" style="background:#a7b4c4"></i>Non attribuée</span><span><i class="dot" style="background:white"></i>Ballon</span></div>
+  <div class="status" id="map-status" role="status"></div>
+ </section>
+</div>
+<div class="section-label">Accéder à une action</div><div id="events" class="events"></div>
+<script>
+// Streamlit component v1 wire protocol. No dependency, CDN or inference required.
+const video=document.getElementById('video'), scrub=document.getElementById('scrub');
+let args=null, mediaId=null, frameIndex=-1, animation=null, objectUrl=null;
+const el=id=>document.getElementById(id), colors={0:'#ff1493',1:'#00bfff'}, ns='http://www.w3.org/2000/svg';
+function send(type,data){window.parent.postMessage({isStreamlitMessage:true,type,...data},'*')}
+function height(){send('streamlit:setFrameHeight',{height:Math.ceil(document.body.getBoundingClientRect().height)+4})}
+function shape(name,attrs,parent){const node=document.createElementNS(ns,name);Object.entries(attrs).forEach(([k,v])=>node.setAttribute(k,v));parent.appendChild(node);return node}
+function seek(t){if(!args)return;video.currentTime=Math.max(args.start,Math.min(args.end-.001,t));draw(true)}
+function tick(){draw();if(!video.paused)animation=requestAnimationFrame(tick)}
+function draw(force=false){
+ if(!args)return;
+ if(video.readyState>=1&&video.currentTime<args.start-.001)video.currentTime=args.start;
+ if(video.currentTime>=args.end){video.pause();if(video.currentTime>args.end+.04)video.currentTime=args.end}
+ const t=video.currentTime;el('clock').textContent=t.toFixed(2)+' s';scrub.value=t;
+ let lo=0,hi=args.frames.length-1,idx=-1;
+ while(lo<=hi){const m=(lo+hi)>>1;if(args.frames[m].time_s<=t+.001){idx=m;lo=m+1}else hi=m-1}
+ if(idx===frameIndex&&!force)return;frameIndex=idx;
+ const frame=args.frames[idx];['people','paths','ball'].forEach(id=>el(id).replaceChildren());
+ const valid=frame&&frame.calibrated&&t<frame.time_s+frame.dt+.001;
+ el('pitch').dataset.time=frame?String(frame.time_s):'';el('pitch').dataset.calibrated=String(!!valid);
+ el('unavailable').textContent=valid?'':'Terrain non calibré à cet instant';
+ if(!valid){el('map-status').textContent='Positions indisponibles · aucune extrapolation';return}
+ const focus=args.focus;
+ for(const p of frame.players){
+  const color=colors[p.team_id]||'#a7b4c4', selected=focus===null||focus===p.identity_id;
+  if(el('trails').checked&&selected){
+   let path='',last=null;
+   for(let j=Math.max(0,idx-Math.ceil(2/frame.dt));j<=idx;j++){
+    const prev=args.frames[j],q=prev.calibrated&&prev.players.find(q=>q.identity_id===p.identity_id);
+    if(!q||prev.time_s<args.start){last=null;continue}
+    const cut=args.events.some(e=>e.type==='camera_cut'&&last&&e.time_s>last.time_s&&e.time_s<=prev.time_s);
+    const continuous=last&&!cut&&q.track_id===last.track_id&&Math.hypot(q.xy[0]-last.xy[0],q.xy[1]-last.xy[1])<=12*(prev.time_s-last.time_s)+.01;
+    path+=(continuous?'L':'M')+q.xy.join(',');last={...q,time_s:prev.time_s};
+   }
+   shape('path',{d:path,fill:'none',stroke:color,'stroke-width':.5,opacity:.6},el('paths'));
+  }
+  const g=shape('g',{'data-identity':p.identity_id,opacity:selected?1:.25},el('people'));
+  shape('circle',{cx:p.xy[0],cy:p.xy[1],r:focus===p.identity_id?1.35:1,fill:color,stroke:frame.possessor===p.identity_id?'#fff':'#0e1117','stroke-width':.4},g);
+  const name=args.labels[p.identity_id]||('ID'+p.identity_id);
+  shape('title',{},g).textContent=name+' · '+p.xy.map(v=>v.toFixed(1)).join(', ')+' m';
+  if(selected)shape('text',{x:p.xy[0],y:p.xy[1]-1.9,'text-anchor':'middle',fill:'#e6edf3','font-size':2.4,'paint-order':'stroke',stroke:'#122a25','stroke-width':.6},g).textContent=args.numbers[p.identity_id]?'#'+args.numbers[p.identity_id]:'ID'+p.identity_id;
+ }
+ if(frame.ball){shape('circle',{cx:frame.ball[0],cy:frame.ball[1],r:.75,fill:'#fff',stroke:'#111','stroke-width':.25},el('ball'))}
+ el('map-status').textContent=`${frame.players.length} pistes visibles · ${frame.ball?'ballon projeté':'ballon non localisé'} · ${frame.time_s.toFixed(2)} s`;
+}
+function render(next){
+ args=next;scrub.min=args.start;scrub.max=args.end;scrub.step=args.frames[0]?.dt||.04;
+ el('window').textContent=`${args.start.toFixed(1)} – ${args.end.toFixed(1)} s`;
+ if(mediaId!==args.media_id){
+  mediaId=args.media_id;video.pause();if(objectUrl)URL.revokeObjectURL(objectUrl);
+  const bytes=Uint8Array.from(atob(args.video_base64),c=>c.charCodeAt(0));objectUrl=URL.createObjectURL(new Blob([bytes],{type:'video/mp4'}));
+  video.src=objectUrl;video.onloadedmetadata=()=>{seek(args.start);height()};el('error').textContent='';
+ }else if(video.currentTime<args.start||video.currentTime>=args.end){seek(args.start)}
+ el('events').replaceChildren();
+ const names={probable_pass:'Passe probable',control_change:'Contrôle changé',camera_cut:'Coupure caméra'};
+ const events=args.events.filter(e=>e.time_s>=args.start&&e.time_s<args.end&&(e.start_s??e.time_s)>=args.start&&names[e.type]);
+ for(const event of events){const button=document.createElement('button');button.type='button';const time=document.createElement('span');time.className='event-time';time.textContent=event.time_s.toFixed(1)+' s';button.append(time);button.append(document.createTextNode(names[event.type]+(event.from!==undefined?` · ${args.labels[event.from]||'ID'+event.from} → ${args.labels[event.to]||'ID'+event.to}`:'')));button.onclick=()=>{video.pause();seek(event.time_s)};el('events').appendChild(button)}
+ if(!events.length){const text=document.createElement('span');text.className='empty';text.textContent='Aucune transition détectée sur cette période. Explorez avec le curseur vidéo.';el('events').appendChild(text)}
+ draw(true);height();
+}
+window.addEventListener('message',event=>{if(event.source===window.parent&&event.data.type==='streamlit:render')render(event.data.args)});
+el('play').onclick=()=>{if(video.paused){if(video.currentTime>=args.end-.05)seek(args.start);video.play().catch(()=>{el('error').textContent='Utilisez le bouton de lecture de la vidéo.'})}else video.pause()};
+video.addEventListener('play',()=>{el('play').textContent='Pause';cancelAnimationFrame(animation);tick()});video.addEventListener('pause',()=>{el('play').textContent='Lire';cancelAnimationFrame(animation);draw()});
+video.addEventListener('timeupdate',()=>draw());video.addEventListener('seeked',()=>draw(true));video.addEventListener('error',()=>{el('error').textContent='La vidéo ne peut pas être lue dans ce navigateur.';height()});
+scrub.oninput=()=>{video.pause();seek(Number(scrub.value))};el('back').onclick=()=>{video.pause();seek(video.currentTime-Number(scrub.step))};el('forward').onclick=()=>{video.pause();seek(video.currentTime+Number(scrub.step))};
+el('speed').onchange=()=>video.playbackRate=Number(el('speed').value);el('trails').onchange=()=>draw(true);
+new ResizeObserver(height).observe(document.body);send('streamlit:componentReady',{apiVersion:1});height();
+</script></body></html>

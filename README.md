@@ -6,7 +6,17 @@
 
 Projet développé par **Mohammed ADDI**, à partir du toolkit open source Roboflow Sports.
 
-Football AI extrait des pistes de joueurs, reconnaît leurs équipes, projette leurs positions sur le terrain et produit des statistiques exploratoires. L'application propose cinq extraits précalculés et l'analyse d'une vidéo importée.
+Football AI transforme un **extrait vidéo** en un espace d'analyse tactique : vidéo annotée, carte du terrain synchronisée, déplacements et transitions de contrôle. Cinq extraits analysés sur GPU sont disponibles immédiatement ; une vidéo personnelle peut aussi être importée.
+
+## Un atelier tactique, centré sur l'extrait
+
+- **Revoir une action** : lecture, ralenti, avance image par image et accès direct aux événements. La carte suit le temps de la vidéo, sans relancer les modèles.
+- **Choisir une période** : les indicateurs, cartes, réseaux et exports sont recalculés sur la fenêtre sélectionnée.
+- **Explorer le jeu** : chronologie du contrôle du ballon, occupation du terrain en 24 zones, réseau dirigé de passes probables, largeur et profondeur des joueurs visibles.
+- **Étudier une piste** : mise en évidence sur le terrain, traces des deux dernières secondes, heatmap individuelle, comparaison de deux déplacements et courbes de vitesse estimée.
+- **Vérifier les mesures** : temps indéterminé, couverture de calibration, ballon localisé et maillots confirmés. Export CSV des pistes/événements, JSON de la période et vidéo annotée de l'extrait complet.
+
+La bibliothèque s'ouvre sans charger PyTorch ni télécharger de modèles. Les vidéos de démonstration sont encodées en H.264 720p et pèsent environ **2,4 à 2,8 Mo** chacune.
 
 ## Ce qui fonctionne
 
@@ -20,14 +30,14 @@ Football AI extrait des pistes de joueurs, reconnaît leurs équipes, projette l
 | Ré-identification | Rapprochement équipe + numéro ; refus de fusionner des pistes dont les périodes de visibilité se chevauchent |
 | Analyse | Trajectoires horodatées, heatmaps, distance observée, vitesse sur segments mesurables |
 | Ballon | Temps de contrôle estimé, possession indéterminée, passes probables et réseau de passes |
-| Export | Vidéo annotée et JSON contenant mesures, trajectoires et diagnostics |
+| Export | Vidéo annotée, CSV et JSON contenant mesures, positions horodatées et diagnostics |
 | Entraînement | Audit des annotations, affinage YOLO11, comparaison avec un modèle de référence |
 
 **Un ID de suivi n'est pas un numéro de maillot.** Sans lectures suffisamment cohérentes, le joueur conserve un libellé `ID…`. Deux équipes peuvent avoir un même numéro. Aucune limite artificielle à onze pistes ne masque les erreurs de suivi.
 
 ## Utiliser l'application
 
-La [version en ligne](https://football-ai-x.streamlit.app/) affiche instantanément les exemples déjà calculés. Ces exemples proviennent du pipeline historique : ils ne démontrent pas les performances des nouvelles expériences YOLO11/BoT-SORT.
+Dans la [version en ligne](https://football-ai-x.streamlit.app/), choisir **Extraits analysés**, puis un des cinq passages de douze secondes. Ils ont été recalculés avec **BoT-SORT, OCR et les détecteurs football historiques**. Ce ne sont pas des démonstrations du candidat YOLO11 expérimental.
 
 Pour utiliser ta carte graphique, depuis la racine du dépôt, dans un environnement Python 3.11 avec PyTorch adapté à ton GPU :
 
@@ -38,9 +48,9 @@ python -m pip install easyocr
 python -m streamlit run examples/soccer/streamlit_app.py
 ```
 
-Dans **Analyser ma vidéo → Analyse par joueur**, choisir ByteTrack ou BoT-SORT. Les modèles football historiques manquants sont téléchargés au lancement ; BoT-SORT télécharge également son modèle d'apparence au premier usage.
+Dans **Importer une vidéo**, choisir le début et la durée du passage. Les réglages permettent de sélectionner ByteTrack ou BoT-SORT, l'échantillonnage et l'OCR lorsqu'il est installé. Les modèles football manquants sont téléchargés uniquement au lancement de l'analyse ; BoT-SORT télécharge également son modèle d'apparence au premier usage.
 
-Le mode complet est proposé lorsque CUDA est disponible. `FORCE_ENABLE_PLAYER_ANALYSIS=1` permet de l'essayer sur CPU. Le GPU du PC n'est pas accessible automatiquement depuis l'application hébergée.
+L'interface limite les traitements à **30 secondes avec CUDA**, **8 secondes sur CPU**. Le CPU est automatiquement utilisé si aucun GPU compatible n'est présent. L'analyse complète peut prendre plusieurs minutes et n'est pas temps réel ; utiliser les démos pour une présentation fluide. Le GPU du PC n'est pas accessible automatiquement depuis l'application hébergée. Les fichiers temporaires d'import sont nettoyés après traitement ; le résultat reste dans la session Streamlit.
 
 Pour un traitement reproductible, avec les poids déjà téléchargés :
 
@@ -49,6 +59,14 @@ python scripts/analyze_match.py --video chemin/match.mp4 --output runs/mon-match
 ```
 
 Le dossier de sortie contient `annotated.mp4`, `preview.jpg` et `analysis.json`. Ajouter `--frames 100` pour un essai court, `--stride 2` pour échantillonner et `--no-ocr` pour désactiver la lecture des maillots.
+
+Pour reconstruire les cinq démos à partir des vidéos présentes dans `examples/soccer/notebooks` :
+
+```bash
+python scripts/build_demos.py --output-dir runs/mes-demos --device cuda --seconds 12 --stride 2
+```
+
+La commande écrit dans un nouveau dossier pour préserver les exemples publiés. Après vérification, remplacer les fichiers de chaque extrait dans `examples/soccer/demo_data`. Le format de données et les règles de calcul sont décrits dans [le guide du tableau de bord](docs/TACTICAL_WORKSPACE.md).
 
 ## YOLO11 : entraîné, mesuré, encore expérimental
 
@@ -61,11 +79,12 @@ L'entraînement est reproductible pour le terrain, le ballon et les joueurs. Seu
 ## Interpréter les résultats
 
 - Les « contrôles » et « passes probables » sont des estimations de proximité entre ballon et pieds. Ce ne sont pas toutes les touches physiques ni des statistiques officielles.
-- La possession est calculée sur le temps attribuable ; le temps inconnu est exposé séparément.
+- Le contrôle A/B est calculé sur le temps attribuable ; le temps inconnu est exposé séparément. Les changements de contrôle ne sont pas assimilés à des interceptions.
 - Les distances sont limitées aux segments observés, calibrés et plausibles. Le terrain de référence mesure **120 × 70 m** ; il faut adapter ses dimensions au stade pour une interprétation métrique.
 - Une vidéo télévisée ne montre pas tous les joueurs. Les occultations, ralentis, maillots similaires et coupures peuvent fragmenter les identités. La ré-identification reste imparfaite.
 - BoT-SORT utilise ici des caractéristiques d'un classifieur générique. Ce n'est pas un modèle d'identité entraîné spécifiquement sur des footballeurs.
-- Tirs, fautes, corners, formation tactique et reconnaissance des remplacements **ne sont pas encore implémentés**.
+- La largeur/profondeur et les cartes d'occupation ne décrivent que les joueurs visibles. Elles ne prouvent ni une formation complète ni la domination d'une équipe.
+- Tirs, xG, fautes, corners, formation tactique et reconnaissance des remplacements **ne sont pas encore implémentés**.
 
 ## Vérifier le projet
 
@@ -73,7 +92,7 @@ L'entraînement est reproductible pour le terrain, le ballon et les joueurs. Seu
 python -m unittest discover -s tests -v
 ```
 
-Les tests couvrent notamment les collisions de maillots, la ré-identification, les coupures, les distances après fusion, la possession, la calibration, la validation des données et l'affichage Streamlit. Des essais GPU sur une vraie vidéo complètent ces tests ; ils ne constituent pas un benchmark de précision du tracking.
+Les tests couvrent notamment les collisions de maillots, la ré-identification, les coupures, les distances après fusion, le contrôle du ballon, la calibration, les fenêtres temporelles, les unités et les cinq vues de démonstration Streamlit. Des essais d'import sur GPU et CPU complètent ces tests ; ils ne constituent pas un benchmark de précision du tracking.
 
 ## Déploiement
 

@@ -19,6 +19,8 @@ lap>=0.5.12,<0.6
 PyYAML>=6
 gdown
 streamlit>=1.46,<2
+plotly>=6,<7
+imageio-ffmpeg>=0.6,<0.7
 
 # Optional extras — the app degrades gracefully (with a clear in-app message)
 # if these aren't installed. Kept out of the default install because both are

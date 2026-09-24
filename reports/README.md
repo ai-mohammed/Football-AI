@@ -58,7 +58,36 @@ ce n'est pas une validation sur toutes les couleurs, tous les stades ou tous les
 
 Les vidéos annotées et JSON complets sont conservés localement sous
 `runs/football/validated-botsort` et `runs/football/validated-yolo11`.
-Les cinq démonstrations versionnées n'ont pas été régénérées avec cette version.
+Les cinq démonstrations ont ensuite été régénérées pour l'atelier tactique décrit ci-dessous.
+
+## Démonstrations de l'atelier tactique
+
+Chaque vidéo couvre douze secondes, avec 150 images analysées (25 images/s, pas de 2),
+BoT-SORT, OCR et les trois détecteurs football historiques. Les JSON version 3 conservent
+les positions par image et les intervalles de mouvement pour permettre un filtrage temporel.
+
+| Source | Calibration acceptée | Pistes/identités finales | Passes probables |
+| --- | ---: | ---: | ---: |
+| 08fd33_0 | 98,7 % | 26 | 1 |
+| 0bfacc_0 | 81,3 % | 27 | 2 |
+| 121364_0 | 38,7 % | 30 | 1 |
+| 2e57b9_0 | 48,7 % | 26 | 2 |
+| 573e61_0 | 10,7 % | 34 | 0 |
+
+Ces nombres sont les sorties du pipeline, **pas des scores de précision**. Le nombre
+de pistes cumulé peut dépasser les joueurs présents à cause des pertes de suivi ;
+les identités n'ont pas été vérifiées manuellement. Les couvertures faibles sont
+visibles dans l'interface et empêchent l'extrapolation de positions.
+
+Les vidéos de lecture sont encodées en H.264 1280 × 720 et pèsent de 2,4 à 2,8 Mo.
+La lecture et la carte se synchronisent dans le navigateur. Un clic sur la passe
+à 5,28 s puis une avance image par image à 5,36 s ont été vérifiés dans le navigateur.
+
+Le service d'import a également été exécuté sur un vrai passage de la première vidéo :
+5 images sur GPU, puis 2 images en forçant le chemin CPU. Les deux traitements ont
+produit leur JSON et une vidéo H.264 sans exiger CUDA sur le chemin CPU. Ce dernier
+essai a pris 59,13 s, initialisation comprise : il confirme la compatibilité, pas
+une performance temps réel ou un comportement identique sur Streamlit Cloud.
 
 ## Vérification logicielle
 
@@ -66,7 +95,11 @@ Les tests automatisés couvrent les collisions OCR, les identités des deux équ
 la reprise des distances après fusion, les coupures, les images sans joueur,
 le temps de possession, les points aberrants, le repli CPU, le suivi après
 réinitialisation, la classification de couleurs et la validation des annotations.
-Un test Streamlit vérifie aussi l'affichage d'une piste sans vitesse calculable.
+Les tests de l'atelier vérifient les fenêtres temporelles, les durées inconnues,
+les unités, les réseaux et l'absence de structure déduite de deux joueurs seulement.
+Les tests Streamlit ouvrent les cinq exemples, changent la période, l'équipe et la
+piste, puis vérifient l'état initial d'import. Une inspection navigateur a couvert
+le lecteur sur ordinateur et sa disposition en colonne sur mobile.
 
 ```bash
 python -m unittest discover -s tests -v

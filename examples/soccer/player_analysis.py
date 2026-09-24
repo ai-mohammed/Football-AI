@@ -63,6 +63,7 @@ class PlayerMatchAnalyzer:
         self.imgsz = imgsz
         self._ocr_reader = None
         self.state = MatchState(CONFIG.length, CONFIG.width)
+        self.samples = []
         self.ball_annotator = BallAnnotator(radius=6, buffer_size=10)
         self.seconds_per_processed_frame = 0
         self.model_paths = {"player": str(player_model_path), "pitch": str(pitch_model_path),
@@ -142,15 +143,22 @@ class PlayerMatchAnalyzer:
             # A failed calibration immediately invalidates pitch-space statistics.
             ball = ball_tracker.update(ball_slicer(frame).with_nms(threshold=0.1))
             possessor = None
+            sample_players = []
+            sample_ball = None
             if transformer is not None:
                 self.state.calibrated_frames += 1
                 xy = transformer.transform_points(people.get_anchors_coordinates(sv.Position.BOTTOM_CENTER))
                 person_ids = people.tracker_id if people.tracker_id is not None else []
                 for track, point in zip(person_ids, xy):
                     self.state.position(track, point, timestamp, dt)
+                    if np.isfinite(point).all() and 0 <= point[0] <= CONFIG.length and 0 <= point[1] <= CONFIG.width:
+                        sample_players.append({'track_id': int(track),
+                                               'team_id': self.state.players[self.state.resolve(track)].team_id,
+                                               'xy': (point / 100).round(3).tolist()})
                 if len(ball) and len(people):
                     ball_xy = transformer.transform_points(ball.get_anchors_coordinates(sv.Position.CENTER))[0]
                     if np.isfinite(ball_xy).all() and 0 <= ball_xy[0] <= CONFIG.length and 0 <= ball_xy[1] <= CONFIG.width:
+                        sample_ball = (ball_xy / 100).round(3).tolist()
                         distances = np.linalg.norm(xy - ball_xy, axis=1)
                         distances[~np.isfinite(distances)] = np.inf
                         distances[(xy[:, 0] < 0) | (xy[:, 0] > CONFIG.length)
@@ -159,6 +167,11 @@ class PlayerMatchAnalyzer:
                         if distances[nearest] <= 150:
                             possessor = int(people.tracker_id[nearest])
             self.state.possession(possessor, timestamp, dt)
+            if not hasattr(self, 'samples'):
+                self.samples = []
+            self.samples.append({'time_s': round(timestamp, 4), 'dt': round(dt, 4),
+                                 'calibrated': transformer is not None, 'players': sample_players,
+                                 'ball': sample_ball, 'possessor': int(possessor) if possessor is not None else None})
             if self.enable_ocr and len(people):
                 self._sample_jerseys(frame, people, index)
             colors, labels = [], []
@@ -197,6 +210,33 @@ class PlayerMatchAnalyzer:
 
     def report(self):
         return self.state.report()
+
+    def export(self, source_video='', source_fps=25, stride=1):
+        """Versioned replay data in metres; no interpolated off-screen positions."""
+        frames = []
+        for sample in self.samples:
+            people = []
+            for person in sample['players']:
+                identity = self.state.resolve(person['track_id'])
+                people.append({**person, 'identity_id': identity})
+            possessor = sample['possessor']
+            frames.append({**sample, 'players': people,
+                           'possessor': self.state.resolve(possessor) if possessor is not None else None})
+        events = []
+        for event in self.state.events:
+            value = dict(event)
+            if event['type'] in ('probable_pass', 'control_change'):
+                value['from'] = self.state.resolve(event['from'])
+                value['to'] = self.state.resolve(event['to'])
+                if value['from'] == value['to']:
+                    continue
+            events.append(value)
+        return {'schema_version': 3, 'source_video': os.path.basename(source_video),
+                'source_fps': float(source_fps), 'stride': int(stride),
+                'duration_s': round(len(frames) * stride / source_fps, 4),
+                'pitch': {'length': CONFIG.length / 100, 'width': CONFIG.width / 100, 'unit': 'm'},
+                'players': self.report(), 'frames': frames, 'events': events,
+                'diagnostics': self.diagnostics()}
 
     def diagnostics(self):
         total = self.state.processed_frames

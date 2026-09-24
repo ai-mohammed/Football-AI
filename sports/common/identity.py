@@ -18,6 +18,7 @@ class PlayerState:
     intervals: dict = field(default_factory=dict)
     trajectory: list = field(default_factory=list)
     timestamps: list = field(default_factory=list)
+    motion_samples: list = field(default_factory=list)
     last_sample: tuple | None = None
     distance_cm: float = 0.0
     measured_seconds: float = 0.0
@@ -83,6 +84,9 @@ class MatchState:
                 if distance <= 1200 * dt:
                     state.distance_cm += distance
                     state.measured_seconds += dt
+                    state.motion_samples.append({'time_s': timestamp, 'dt': dt,
+                                                 'distance_m': distance / 100,
+                                                 'speed_kmh': distance / dt * 0.036})
         state.last_sample = (track, timestamp, point.copy())
         state.trajectory.append(point.tolist())
         state.timestamps.append(timestamp)
@@ -130,6 +134,7 @@ class MatchState:
         dst.intervals.update(src.intervals)
         dst.team_votes.update(src.team_votes)
         dst.jersey_votes.update(src.jersey_votes)
+        dst.motion_samples = sorted(dst.motion_samples + src.motion_samples, key=lambda s: s['time_s'])
         samples = sorted(zip(dst.timestamps + src.timestamps, dst.trajectory + src.trajectory))
         dst.timestamps = [t for t, _ in samples]
         dst.trajectory = [p for _, p in samples]
@@ -180,7 +185,13 @@ class MatchState:
                     previous.passes_made += 1
                     state.passes_received += 1
                     self.events.append({"type": "probable_pass", "time_s": timestamp,
+                                        "start_s": self.last_control_time,
+                                        "team_id": state.team_id,
                                         "from": self.possessor, "to": identity})
+                else:
+                    self.events.append({'type': 'control_change', 'time_s': timestamp,
+                                        'start_s': self.last_control_time, 'team_id': state.team_id,
+                                        'from': self.possessor, 'to': identity})
         self.possessor = self.previous_control = identity
         self.last_control_time = timestamp
 
@@ -202,4 +213,5 @@ class MatchState:
                          if state.measured_seconds else None,
                          "trajectory": np.asarray(state.trajectory).reshape(-1, 2),
                          "timestamps": list(state.timestamps)})
+            rows[-1]['motion_samples'] = list(state.motion_samples)
         return sorted(rows, key=lambda r: -r["touches"])
