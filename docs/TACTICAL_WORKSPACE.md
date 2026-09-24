@@ -29,8 +29,11 @@ se place sous la vidéo sur les petits écrans. La carte n'extrapole pas les jou
 | Distance / vitesse | Mouvements consécutifs calibrés, plausibles et sans coupure | Distance partielle et sensible à la calibration |
 | Épisodes de contrôle | Entrées observées en contrôle dans la période | Une occultation peut fragmenter un épisode ; ce ne sont pas les touches physiques |
 
-Une passe probable est retenue lorsque le contrôle passe à une autre piste de la même
-équipe dans un délai d'une seconde. Une transition entre équipes est seulement nommée
+Une passe probable exige deux observations du nouveau contrôleur (au moins 0,08 s d’écart),
+un déplacement observé du ballon d’au moins 2 m et une transition vers la même équipe.
+Le trajet peut durer jusqu’à 5 s, avec au plus 0,4 s sans ballon localisé ; les sauts
+invraisemblables interrompent le lien avec le passeur. Une brève réapparition du même
+contrôleur actualise le départ, sans attribuer le temps manquant. Une transition entre équipes est seulement nommée
 « changement de contrôle ». Les événements dont le départ précède la fenêtre choisie
 sont exclus de ses comptes. Aucune précision événementielle n'est revendiquée sans annotations.
 
@@ -42,6 +45,8 @@ sont exclus de ses comptes. Aucune précision événementielle n'est revendiqué
 - `source_start_s` pour un extrait découpé depuis une vidéo importée ;
 - `pitch` : dimensions du terrain de référence, unité mètres ;
 - `frames` : `time_s`, `dt`, `calibrated`, positions de `players`, `ball`, `possessor` ;
+- `frames[].display_players` : affichage interpolé distinct de `players`, avec drapeau `interpolated` ;
+- `frames[].control_candidate` : proximité brute avant confirmation ; `ball_image_xy` : ballon détecté en pixels ;
 - champs facultatifs d'audit : `source_resolution`, `frames[].image_detections` (boîtes source en pixels), `calibration_method`, `pitch_boundary_px` ;
 - `players` : identité, pistes associées, hypothèse de maillot, trajectoire et `motion_samples` ;
 - `events` : transitions horodatées, coupures et diagnostics d'identité ;
@@ -73,7 +78,7 @@ Les IDs de pistes et d'identités restent distincts. Les identités fusionnées 
 consensus équipe/maillot sont résolues dans les positions et les événements exportés.
 La couleur d'équipe d'un échantillon conserve l'attribution observée à cet instant.
 Le numéro affiché dans le tableau de bord est le consensus obtenu sur l'ensemble de l'extrait,
-alors que la vidéo annotée montre ce qui était connu au moment du traitement de chaque image.
+et la vidéo des démos et imports utilise ce même consensus final pour stabiliser les libellés. Le générateur d’analyse en continu conserve les hypothèses disponibles au moment de chaque image.
 
 ## Architecture et performances
 
@@ -93,3 +98,18 @@ YOLO11 affiné localement est expérimental ; voir [les mesures](../reports/READ
 Le pipeline d'import choisit automatiquement le matériel disponible, limite la durée,
 nettoie ses fichiers temporaires et conserve le résultat dans la session. Sur un hébergement
 CPU, l'analyse reste lente. La bibliothèque précalculée est le parcours prévu pour les démonstrations.
+
+## Continuité et rendu
+
+Les vidéos de démo et d’import conservent la cadence de la source (25 images/s pour les cinq démos),
+même si l’inférence est échantillonnée à 12,5 images/s. La carte interpole le mouvement entre
+échantillons. Une disparition de piste n’est comblée à l’affichage que si les deux observations
+encadrantes gardent le même track, la même identité et la même équipe, dans une fenêtre maximale
+de 0,32 s, sans coupure et avec déplacement plausible. Ces repères sont en pointillés ;
+`segments.py` et les statistiques n’utilisent jamais `display_players`.
+
+Pour une vue télévisée, `pitch_optical_flow` indique une calibration issue du suivi visuel de
+repères, pendant au plus 0,32 s après une calibration directe. Elle requiert six repères suivis
+avec cohérence aller-retour et un ajustement RANSAC valide. Une ancienne matrice n’est jamais
+réutilisée telle quelle. Ce maintien court reste une estimation géométrique ; voir le
+[rapport de continuité](../reports/CONTINUITY.md).

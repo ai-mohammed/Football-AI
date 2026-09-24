@@ -1,5 +1,8 @@
 # Résultats mesurés — 24 septembre 2026
 
+Dernière vérification : [passes et continuité des cinq démos](CONTINUITY.md), avec
+première passe retrouvée, rendu à 25 images/s et comparaison des événements avant/après.
+
 ## Affinage YOLO11 du terrain
 
 Machine : NVIDIA GeForce RTX 3080. Ultralytics 8.4.103, PyTorch 2.13.0+cu130.

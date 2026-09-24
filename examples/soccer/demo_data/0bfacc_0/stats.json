@@ -12,8 +12,8 @@
       "label": "ID12",
       "team_id": 1,
       "touches": 2,
-      "passes_made": 1,
-      "passes_received": 1,
+      "passes_made": 2,
+      "passes_received": 2,
       "distance_m": 38.91,
       "avg_speed_kmh": 11.75
     },
@@ -22,7 +22,7 @@
       "team_id": 1,
       "touches": 1,
       "passes_made": 0,
-      "passes_received": 0,
+      "passes_received": 1,
       "distance_m": 31.63,
       "avg_speed_kmh": 10.17
     },
@@ -48,7 +48,7 @@
       "label": "ID7",
       "team_id": 1,
       "touches": 1,
-      "passes_made": 0,
+      "passes_made": 1,
       "passes_received": 1,
       "distance_m": 37.27,
       "avg_speed_kmh": 11.33

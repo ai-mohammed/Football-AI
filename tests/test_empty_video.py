@@ -38,7 +38,7 @@ class EmptyVideoTests(unittest.TestCase):
         with patch('player_analysis.sv.VideoInfo.from_video_path', return_value=sv.VideoInfo(100, 100, 25, 2)), \
              patch('player_analysis.sv.get_video_frames_generator', side_effect=lambda *a, **k: iter([frame, frame])), \
              patch('player_analysis.sv.KeyPoints.from_ultralytics', return_value=sv.KeyPoints.empty()), \
-             patch('player_analysis._safe_transformer', return_value=transformer):
+             patch('player_analysis.TemporalPitchCalibrator.update', return_value=transformer):
             frames = list(analyzer.process('unused.mp4'))
         self.assertEqual(len(frames), 2)
         self.assertEqual(analyzer.report(), [])

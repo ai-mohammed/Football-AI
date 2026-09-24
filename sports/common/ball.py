@@ -5,6 +5,39 @@ import numpy as np
 import supervision as sv
 
 
+class MotionBallTracker:
+    """Associate real detections to recent motion, never to all past candidates.
+
+    Misses produce no ball. A short prediction selects a detection only; it is
+    never exported as an observation. A cut must create a fresh tracker.
+    """
+    def __init__(self, max_gap=.4):
+        self.history = deque(maxlen=5)
+        self.max_gap = max_gap
+
+    def update(self, detections, timestamp, image_width):
+        if not len(detections):
+            return detections
+        xy = detections.get_anchors_coordinates(sv.Position.CENTER)
+        confidence = detections.confidence if detections.confidence is not None else np.ones(len(xy))
+        if not self.history or timestamp-self.history[-1][0] > self.max_gap:
+            self.history.clear()
+            index = int(np.argmax(confidence))
+        else:
+            last_t, last_xy = self.history[-1]
+            dt = timestamp-last_t
+            velocities = [(b[1]-a[1])/(b[0]-a[0]) for a, b in zip(self.history, list(self.history)[1:])
+                          if b[0] > a[0]]
+            velocity = np.median(velocities, axis=0) if velocities else np.zeros(2)
+            predicted = last_xy+velocity*dt
+            distance = np.linalg.norm(xy-predicted, axis=1)
+            index = int(np.argmin(distance/image_width + .006*(1-confidence)))
+            if distance[index] > image_width*(.025+.75*dt):
+                return sv.Detections.empty()
+        self.history.append((timestamp, xy[index].copy()))
+        return detections[[index]]
+
+
 class BallAnnotator:
     """
     A class to annotate frames with circles of varying radii and colors.

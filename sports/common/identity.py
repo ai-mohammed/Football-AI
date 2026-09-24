@@ -7,6 +7,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 
 import numpy as np
+from sports.common.control import BallFlight
 
 
 @dataclass
@@ -48,6 +49,7 @@ class MatchState:
         self.unknown_seconds = 0.0
         self.calibrated_frames = 0
         self.processed_frames = 0
+        self.flight = BallFlight()
 
     def resolve(self, track):
         track = int(track)
@@ -163,22 +165,29 @@ class MatchState:
         for state in self.players.values():
             state.last_sample = None
         self.possessor = self.previous_control = self.last_control_time = None
+        self.flight.reset()
         self.events.append({"type": "camera_cut", "time_s": timestamp})
 
-    def possession(self, track, timestamp, sample_period):
+    def possession(self, track, timestamp, sample_period, ball_xy=None):
+        self.flight.observe(ball_xy, timestamp)
         identity = self.resolve(track) if track is not None else None
         if identity is None or self.players[identity].team_id not in (0, 1):
             self.unknown_seconds += sample_period
             self.previous_control = None
-            if self.last_control_time is not None and timestamp - self.last_control_time > 1.0:
+            if self.last_control_time is not None and timestamp - self.last_control_time > 1.0 and not self.flight.can_continue(timestamp):
                 self.possessor = None
             return
         state = self.players[identity]
         state.possession_seconds += sample_period
-        recent = self.last_control_time is not None and timestamp - self.last_control_time <= 1.0
+        # Legacy callers with no ball coordinates keep the conservative one-second
+        # rule. Video analysis requires actual ball-flight evidence for a transfer.
+        recent = (self.last_control_time is not None and
+                  ((ball_xy is None and timestamp-self.last_control_time <= 1.0)
+                   or self.flight.can_continue(timestamp)))
         if identity != self.possessor or not recent:
             state.touches += 1  # Control episodes, not every physical touch.
-            if recent and self.possessor is not None and self.possessor != identity:
+            transfer = ball_xy is None or self.flight.supports_transfer(timestamp)
+            if recent and transfer and self.possessor is not None and self.possessor != identity:
                 previous = self.players[self.possessor]
                 if previous.team_id == state.team_id:
                     self.pass_edges[self.possessor, identity] += 1
@@ -186,6 +195,7 @@ class MatchState:
                     state.passes_received += 1
                     self.events.append({"type": "probable_pass", "time_s": timestamp,
                                         "start_s": self.last_control_time,
+                                        "evidence": "observed_ball_flight" if ball_xy is not None else "control_transition",
                                         "team_id": state.team_id,
                                         "from": self.possessor, "to": identity})
                 else:
@@ -194,6 +204,7 @@ class MatchState:
                                         'from': self.possessor, 'to': identity})
         self.possessor = self.previous_control = identity
         self.last_control_time = timestamp
+        self.flight.anchor(ball_xy, timestamp)
 
     def report(self):
         rows = []

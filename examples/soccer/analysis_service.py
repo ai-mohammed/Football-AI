@@ -4,7 +4,6 @@ from pathlib import Path
 import subprocess
 import tempfile
 
-import cv2
 import imageio_ffmpeg
 import streamlit as st
 import supervision as sv
@@ -12,6 +11,7 @@ import supervision as sv
 from main import PLAYER_DETECTION_MODEL_PATH, PITCH_DETECTION_MODEL_PATH, BALL_DETECTION_MODEL_PATH
 from player_analysis import PlayerMatchAnalyzer
 from sports.common.runtime import resolve_device
+from sports.common.replay import render_replay
 
 MODEL_PATHS = {'player': PLAYER_DETECTION_MODEL_PATH, 'pitch': PITCH_DETECTION_MODEL_PATH,
                'ball': BALL_DETECTION_MODEL_PATH}
@@ -65,7 +65,7 @@ def analyze_upload(video_bytes, filename, start, seconds, stride, tracker, enabl
         root = Path(directory)
         source = root / ('source' + Path(filename).suffix.lower())
         source.write_bytes(video_bytes)
-        clip, raw, final = root / 'clip.mp4', root / 'render.avi', root / 'annotated.mp4'
+        clip, final = root / 'clip.mp4', root / 'annotated.mp4'
         ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
         subprocess.run([ffmpeg, '-hide_banner', '-loglevel', 'error', '-ss', str(start),
             '-i', str(source), '-t', str(seconds), '-an', '-c:v', 'libx264', '-preset', 'fast',
@@ -77,25 +77,16 @@ def analyze_upload(video_bytes, filename, start, seconds, stride, tracker, enabl
             device=device, tracker_backend=tracker, enable_ocr=enable_ocr,
             imgsz=1280 if device.startswith('cuda') else 960, profile=profile,
             pitch_length_m=pitch_length_m, pitch_width_m=pitch_width_m)
-        writer = cv2.VideoWriter(str(raw), cv2.VideoWriter_fourcc(*'MJPG'), info.fps / stride,
-                                (info.width, info.height))
-        if not writer.isOpened():
-            raise RuntimeError('Impossible de créer la vidéo annotée.')
         count = 0
         total = (info.total_frames + stride - 1) // stride
-        try:
-            for count, frame in enumerate(analyzer.process(str(clip), stride=stride), start=1):
-                writer.write(frame)
-                progress(min(count / total, 1.))
-        finally:
-            writer.release()
+        for count, _ in enumerate(analyzer.process(str(clip), stride=stride), start=1):
+            progress(min(count / total, 1.)*.95)
         if not count:
             raise ValueError('Aucune image n’a pu être analysée.')
-        subprocess.run([ffmpeg, '-hide_banner', '-loglevel', 'error', '-i', str(raw), '-an',
-            '-c:v', 'libx264', '-preset', 'fast', '-crf', '24', '-pix_fmt', 'yuv420p',
-            '-movflags', '+faststart', str(final)], check=True, capture_output=True)
         data = analyzer.export(filename, info.fps, stride)
         data['duration_s'] = min(data['duration_s'], info.total_frames / info.fps)
+        render_replay(clip, data, final)
+        progress(1.)
         data['source_start_s'] = start
         data['diagnostics']['models'] = {k: Path(v).name for k, v in analyzer.model_paths.items()}
         # Detach NumPy values and model state before storing a lightweight session result.

@@ -3,14 +3,12 @@ import argparse
 import gc
 import json
 from pathlib import Path
-import subprocess
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT), str(ROOT / 'examples/soccer')]
 
 import cv2
-import imageio_ffmpeg
 import numpy as np
 import supervision as sv
 import torch
@@ -18,6 +16,7 @@ import torch
 from main import PLAYER_DETECTION_MODEL_PATH, PITCH_DETECTION_MODEL_PATH, BALL_DETECTION_MODEL_PATH
 from player_analysis import PlayerMatchAnalyzer, CONFIG
 from sports.annotators.soccer import draw_pitch_heatmap, draw_pass_network
+from sports.common.replay import render_replay
 
 
 def encode(value):
@@ -45,23 +44,11 @@ def main():
         frames = min(int(args.seconds * info.fps / args.stride), int(np.ceil(info.total_frames / args.stride)))
         analyzer = PlayerMatchAnalyzer(PLAYER_DETECTION_MODEL_PATH, PITCH_DETECTION_MODEL_PATH,
                                        BALL_DETECTION_MODEL_PATH, device=args.device, tracker_backend='botsort')
-        raw = output / 'render.avi'
-        writer = cv2.VideoWriter(str(raw), cv2.VideoWriter_fourcc(*'MJPG'), info.fps / args.stride,
-                                 (info.width, info.height))
-        if not writer.isOpened():
-            raise RuntimeError('Unable to create the demo video')
-        try:
-            for index, frame in enumerate(analyzer.process(str(source), stride=args.stride, max_frames=frames)):
-                writer.write(frame)
-                if index == 0:
-                    cv2.imwrite(str(output / 'preview.jpg'), frame)
-        finally:
-            writer.release()
-        subprocess.run([imageio_ffmpeg.get_ffmpeg_exe(), '-hide_banner', '-loglevel', 'error',
-                        '-i', str(raw), '-an', '-vf', 'scale=1280:-2', '-c:v', 'libx264', '-preset', 'fast', '-crf', '25',
-                        '-pix_fmt', 'yuv420p', '-movflags', '+faststart', str(output / 'annotated.mp4')], check=True)
-        raw.unlink()  # Only this script's own temporary encoding file.
+        for index, _ in enumerate(analyzer.process(str(source), stride=args.stride, max_frames=frames)):
+            if index % 50 == 0:
+                print(f'{clip}: analysed {index+1}/{frames}', flush=True)
         payload = analyzer.export(str(source), info.fps, args.stride)
+        render_replay(source, payload, output / 'annotated.mp4', output / 'preview.jpg')
         payload['diagnostics']['models'] = {k: Path(v).name for k, v in payload['diagnostics']['models'].items()}
         (output / 'analysis.json').write_text(json.dumps(payload, default=encode, separators=(',', ':')), encoding='utf-8')
         team = analyzer.team_report()

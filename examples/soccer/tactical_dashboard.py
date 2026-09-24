@@ -169,7 +169,8 @@ def render_dashboard(data, video_path, clip_id):
     if video:
         encoded = base64.b64encode(video).decode('ascii') if path is None else video_base64(str(path), path.stat().st_mtime_ns)
         PLAYER_COMPONENT(video_base64=encoded,
-            media_id=clip_id, frames=data['frames'], events=data['events'],
+            media_id=f'{clip_id}:{path.stat().st_mtime_ns}' if path is not None else clip_id,
+            frames=data['frames'], events=data['events'], source_fps=data.get('source_fps', 25),
             pitch=data['pitch'], ball_available=ball_available,
             labels={str(k): label(v) for k, v in players.items()},
             numbers={str(k): v.get('jersey_number') for k, v in players.items()},

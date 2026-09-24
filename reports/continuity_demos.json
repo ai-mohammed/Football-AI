@@ -1,0 +1,186 @@
+{
+  "baseline_commit": "7141a62",
+  "source_seconds": 12,
+  "analysis_stride": 2,
+  "results": [
+    {
+      "clip": "08fd33_0",
+      "old_passes": 1,
+      "new_passes": 3,
+      "old_calibrated_frames": 150,
+      "new_calibrated_frames": 150,
+      "optical_flow_frames": 0,
+      "display_gap_positions": 10,
+      "old_fps": 12.5,
+      "new_fps": 25.0,
+      "decoded_video_frames": 300,
+      "events": [
+        {
+          "type": "probable_pass",
+          "time_s": 2.32,
+          "start_s": 0.48,
+          "evidence": "observed_ball_flight",
+          "team_id": 0,
+          "from": 22,
+          "to": 3
+        },
+        {
+          "type": "probable_pass",
+          "time_s": 5.44,
+          "start_s": 4.48,
+          "evidence": "observed_ball_flight",
+          "team_id": 0,
+          "from": 3,
+          "to": 11
+        },
+        {
+          "type": "probable_pass",
+          "time_s": 9.52,
+          "start_s": 7.36,
+          "evidence": "observed_ball_flight",
+          "team_id": 0,
+          "from": 11,
+          "to": 14
+        }
+      ],
+      "mp4_mb": 3.86
+    },
+    {
+      "clip": "0bfacc_0",
+      "old_passes": 3,
+      "new_passes": 5,
+      "old_calibrated_frames": 150,
+      "new_calibrated_frames": 150,
+      "optical_flow_frames": 0,
+      "display_gap_positions": 4,
+      "old_fps": 12.5,
+      "new_fps": 25.0,
+      "decoded_video_frames": 300,
+      "events": [
+        {
+          "type": "probable_pass",
+          "time_s": 1.6,
+          "start_s": 0.64,
+          "evidence": "observed_ball_flight",
+          "team_id": 1,
+          "from": 6,
+          "to": 12
+        },
+        {
+          "type": "probable_pass",
+          "time_s": 3.84,
+          "start_s": 2.4,
+          "evidence": "observed_ball_flight",
+          "team_id": 1,
+          "from": 12,
+          "to": 4
+        },
+        {
+          "type": "probable_pass",
+          "time_s": 6.640000000000001,
+          "start_s": 6.08,
+          "evidence": "observed_ball_flight",
+          "team_id": 1,
+          "from": 4,
+          "to": 7
+        },
+        {
+          "type": "probable_pass",
+          "time_s": 8.4,
+          "start_s": 7.28,
+          "evidence": "observed_ball_flight",
+          "team_id": 1,
+          "from": 7,
+          "to": 12
+        },
+        {
+          "type": "probable_pass",
+          "time_s": 10.8,
+          "start_s": 9.52,
+          "evidence": "observed_ball_flight",
+          "team_id": 1,
+          "from": 12,
+          "to": 2
+        }
+      ],
+      "mp4_mb": 3.46
+    },
+    {
+      "clip": "121364_0",
+      "old_passes": 1,
+      "new_passes": 2,
+      "old_calibrated_frames": 144,
+      "new_calibrated_frames": 150,
+      "optical_flow_frames": 6,
+      "display_gap_positions": 3,
+      "old_fps": 12.5,
+      "new_fps": 25.0,
+      "decoded_video_frames": 300,
+      "events": [
+        {
+          "type": "probable_pass",
+          "time_s": 6.16,
+          "start_s": 5.28,
+          "evidence": "observed_ball_flight",
+          "team_id": 0,
+          "from": 7,
+          "to": 1
+        },
+        {
+          "type": "probable_pass",
+          "time_s": 9.68,
+          "start_s": 7.44,
+          "evidence": "observed_ball_flight",
+          "team_id": 0,
+          "from": 1,
+          "to": 24
+        }
+      ],
+      "mp4_mb": 3.55
+    },
+    {
+      "clip": "2e57b9_0",
+      "old_passes": 5,
+      "new_passes": 0,
+      "old_calibrated_frames": 149,
+      "new_calibrated_frames": 150,
+      "optical_flow_frames": 1,
+      "display_gap_positions": 7,
+      "old_fps": 12.5,
+      "new_fps": 25.0,
+      "decoded_video_frames": 300,
+      "events": [],
+      "mp4_mb": 3.84
+    },
+    {
+      "clip": "573e61_0",
+      "old_passes": 3,
+      "new_passes": 1,
+      "old_calibrated_frames": 142,
+      "new_calibrated_frames": 149,
+      "optical_flow_frames": 7,
+      "display_gap_positions": 8,
+      "old_fps": 12.5,
+      "new_fps": 25.0,
+      "decoded_video_frames": 300,
+      "events": [
+        {
+          "type": "probable_pass",
+          "time_s": 8.72,
+          "start_s": 7.68,
+          "evidence": "observed_ball_flight",
+          "team_id": 0,
+          "from": 24,
+          "to": 22
+        },
+        {
+          "type": "identity_conflict",
+          "team": 1,
+          "jersey": "1"
+        }
+      ],
+      "mp4_mb": 3.8
+    }
+  ],
+  "scope": "Observed output comparison, not event precision or ground-truth calibration accuracy"
+}

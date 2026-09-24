@@ -16,21 +16,21 @@ Football AI transforme un **extrait vidéo** en un espace d'analyse tactique : v
 - **Étudier une piste** : mise en évidence sur le terrain, traces des deux dernières secondes, heatmap individuelle, comparaison de deux déplacements et courbes de vitesse estimée.
 - **Vérifier les mesures** : temps indéterminé, couverture de calibration, ballon localisé et maillots confirmés. Export CSV des pistes/événements, JSON de la période et vidéo annotée de l'extrait complet.
 
-La bibliothèque s'ouvre sans charger PyTorch ni télécharger de modèles. Les vidéos de démonstration sont encodées en H.264 720p et pèsent environ **2,4 à 2,8 Mo** chacune.
+La bibliothèque s'ouvre sans charger PyTorch ni télécharger de modèles. Les vidéos de démonstration sont encodées en H.264 720p et pèsent environ **3,5 à 3,9 Mo** chacune, à **25 images/s**. Le rendu conserve toutes les images de la source, même lorsque l’analyse en traite une sur deux.
 
 ## Ce qui fonctionne
 
 | Fonction | Mise en œuvre |
 | --- | --- |
 | Détection | Modèles football pour les joueurs, gardiens, arbitres et ballon |
-| Points du terrain | Modèle à 32 points ; filtrage par confiance et calibration RANSAC |
+| Points du terrain | Modèle à 32 points ; RANSAC et suivi optique bref des repères lors d’une détection manquante |
 | Vue drone expérimentale | Petits joueurs détectés par zones, exclusion du hors-terrain, calibration par les lignes blanches |
 | Suivi individuel | ByteTrack ou BoT-SORT avec compensation du mouvement caméra et caractéristiques d'apparence, dans le mode Analyse par joueur |
 | Équipes | Couleur du torse, clustering reproductible et vote temporel ; une attribution incertaine reste inconnue |
 | Numéro de maillot | OCR optionnel, lectures répétées et contrôle des conflits |
 | Ré-identification | Rapprochement équipe + numéro ; refus de fusionner des pistes dont les périodes de visibilité se chevauchent |
 | Analyse | Trajectoires horodatées, heatmaps, distance observée, vitesse sur segments mesurables |
-| Ballon | Temps de contrôle estimé, possession indéterminée, passes probables et réseau de passes |
+| Ballon | Suivi du mouvement, contrôle confirmé sur plusieurs observations, passes probables et réseau |
 | Export | Vidéo annotée, CSV et JSON contenant mesures, positions horodatées et diagnostics |
 | Entraînement | Audit des annotations, affinage YOLO11, comparaison avec un modèle de référence |
 
@@ -81,6 +81,14 @@ python scripts/build_demos.py --output-dir runs/mes-demos --device cuda --second
 
 La commande écrit dans un nouveau dossier pour préserver les exemples publiés. Après vérification, remplacer les fichiers de chaque extrait dans `examples/soccer/demo_data`. Le format de données et les règles de calcul sont décrits dans [le guide du tableau de bord](docs/TACTICAL_WORKSPACE.md).
 
+## Continuité des actions
+
+La première passe de l’extrait 1 est désormais détectée : **ID22 → ID3, de 0,48 à 2,32 s**. Le passeur reste mémorisé pendant un trajet de ballon observé, même lorsqu’il dure plus d’une seconde. Les alternances isolées entre voisins ne suffisent plus à produire une passe.
+
+Les brèves disparitions de positions sont interpolées **pour l’affichage uniquement**, entre deux observations du même joueur distantes d’au plus 0,32 s. Les repères concernés sont en pointillés sur la carte. Les statistiques utilisent les observations ; elles ne gagnent ni distance ni contrôle artificiels. La calibration peut suivre ses repères par mouvement optique pendant une courte défaillance du détecteur, puis redevient indisponible si les contrôles échouent.
+
+Les cinq démos ont été recalculées. Les résultats avant/après, le cas restant sans passe confirmée et les limites sont détaillés dans [le rapport de continuité](reports/CONTINUITY.md).
+
 ## YOLO11 : entraîné, mesuré, encore expérimental
 
 Un **YOLO11n-pose à 32 points** a été affiné localement : 20 époques initiales, puis 80 à partir du meilleur checkpoint. Sur les 30 images de validation disponibles, sa mAP50–95 des points atteint **0,743**, contre **0,925** pour le modèle historique.
@@ -91,7 +99,7 @@ L'entraînement est reproductible pour le terrain, le ballon et les joueurs. Seu
 
 ## Interpréter les résultats
 
-- Les « contrôles » et « passes probables » sont des estimations de proximité entre ballon et pieds. Ce ne sont pas toutes les touches physiques ni des statistiques officielles.
+- Les « contrôles » et « passes probables » reposent sur la proximité ballon/pieds, la confirmation temporelle et la continuité observée du ballon. Ce ne sont pas toutes les touches physiques ni des statistiques officielles.
 - Le contrôle A/B est calculé sur le temps attribuable ; le temps inconnu est exposé séparément. Les changements de contrôle ne sont pas assimilés à des interceptions.
 - Les distances sont limitées aux segments observés, calibrés et plausibles. Le terrain de référence mesure par défaut **105 × 68 m** ; il faut adapter ses dimensions au stade pour une interprétation métrique. Les exports enregistrent les dimensions utilisées.
 - Une vidéo télévisée ne montre pas tous les joueurs. Les occultations, ralentis, maillots similaires et coupures peuvent fragmenter les identités. La ré-identification reste imparfaite.

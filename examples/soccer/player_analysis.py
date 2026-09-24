@@ -16,10 +16,12 @@ for _path in (_APP_DIR, _REPO_ROOT):
         sys.path.insert(0, _path)
 
 from main import ELLIPSE_ANNOTATOR, ELLIPSE_LABEL_ANNOTATOR, get_crops, resolve_goalkeepers_team_id
-from sports.common.ball import BallAnnotator, BallTracker
+from sports.common.ball import BallAnnotator, MotionBallTracker
 from sports.common.aerial import TiledPlayerDetector, full_pitch_boundary, boundary_transformer
-from sports.common.calibration import ShotChangeDetector, pitch_transformer
+from sports.common.calibration import ShotChangeDetector, pitch_transformer, TemporalPitchCalibrator
+from sports.common.control import ControlFilter
 from sports.common.identity import MatchState
+from sports.common.replay import add_display_positions
 from sports.common.runtime import resolve_device
 from sports.common.team import TeamClassifier
 from sports.common.tracking import FootballTracker
@@ -120,7 +122,9 @@ class PlayerMatchAnalyzer:
                                   device=self.device, reid_model=self.reid_model,
                                   minimum_box_side_ratio=1/64 if self.profile == 'aerial' else 0.)
         shots = ShotChangeDetector()
-        ball_tracker = BallTracker(buffer_size=20)
+        ball_tracker = MotionBallTracker()
+        control_filter = ControlFilter()
+        calibration = TemporalPitchCalibrator(self.config.vertices)
 
         def ball_callback(image):
             result = self.ball_model(image, imgsz=640, verbose=False)[0]
@@ -135,7 +139,9 @@ class PlayerMatchAnalyzer:
             self.state.processed_frames += 1
             if shots.update(frame):
                 tracker.reset()
-                ball_tracker = BallTracker(buffer_size=20)
+                ball_tracker = MotionBallTracker()
+                control_filter.reset()
+                calibration.reset()
                 self.ball_annotator = BallAnnotator(radius=6, buffer_size=10)
                 self.state.cut(timestamp)
             boundary = full_pitch_boundary(frame) if self.profile == "aerial" else None
@@ -165,12 +171,12 @@ class PlayerMatchAnalyzer:
                 transformer = boundary_transformer(boundary, self.config.length, self.config.width)
             else:
                 keypoints = sv.KeyPoints.from_ultralytics(self.pitch_model(frame, verbose=False)[0])
-                transformer = _safe_transformer(keypoints, self.config)
+                transformer = calibration.update(frame, keypoints, timestamp)
             # A failed calibration immediately invalidates pitch-space statistics.
             # The broadcast ball model is not validated for overhead views. Keep
             # possession unknown instead of generating passes from white markings.
             ball = (sv.Detections.empty() if self.profile == "aerial" else
-                    ball_tracker.update(ball_slicer(frame).with_nms(threshold=0.1)))
+                    ball_tracker.update(ball_slicer(frame).with_nms(threshold=0.1), timestamp, info.width))
             possessor = None
             sample_players = []
             sample_ball = None
@@ -196,7 +202,10 @@ class PlayerMatchAnalyzer:
                         nearest = int(np.argmin(distances))
                         if distances[nearest] <= 150:
                             possessor = int(people.tracker_id[nearest])
-            self.state.possession(possessor, timestamp, dt)
+            control_candidate = possessor
+            possessor = control_filter.update(self.state.resolve(possessor) if possessor is not None else None, timestamp)
+            self.state.possession(possessor, timestamp, dt,
+                                  np.asarray(sample_ball)*100 if sample_ball is not None else None)
             if not hasattr(self, 'samples'):
                 self.samples = []
             self.samples.append({'time_s': round(timestamp, 4), 'dt': round(dt, 4),
@@ -205,8 +214,10 @@ class PlayerMatchAnalyzer:
                                                        'xyxy': box.round(2).tolist()}
                                                       for track, cls, box in zip(detections.tracker_id,
                                                                                 detections.class_id, detections.xyxy)],
-                                 'calibration_method': ('aerial_boundary' if self.profile == 'aerial' else 'pitch_keypoints') if transformer is not None else None,
+                                 'calibration_method': ('aerial_boundary' if self.profile == 'aerial' else calibration.method) if transformer is not None else None,
                                  'pitch_boundary_px': boundary.round(1).tolist() if boundary is not None else None,
+                                 'ball_image_xy': ball.get_anchors_coordinates(sv.Position.CENTER)[0].round(2).tolist() if len(ball) else None,
+                                 'control_candidate': control_candidate,
                                  'ball': sample_ball, 'possessor': int(possessor) if possessor is not None else None})
             if self.enable_ocr and len(people):
                 self._sample_jerseys(frame, people, index)
@@ -271,13 +282,13 @@ class PlayerMatchAnalyzer:
                 if value['from'] == value['to']:
                     continue
             events.append(value)
-        return {'schema_version': 3, 'source_video': os.path.basename(source_video),
+        return add_display_positions({'schema_version': 3, 'source_video': os.path.basename(source_video),
                 'source_resolution': getattr(self, 'source_resolution', None),
                 'source_fps': float(source_fps), 'stride': int(stride),
                 'duration_s': round(len(frames) * stride / source_fps, 4),
                 'pitch': {'length': self.config.length / 100, 'width': self.config.width / 100, 'unit': 'm'},
                 'players': self.report(), 'frames': frames, 'events': events,
-                'diagnostics': self.diagnostics()}
+                'diagnostics': self.diagnostics()})
 
     def diagnostics(self):
         total = self.state.processed_frames
@@ -288,6 +299,8 @@ class PlayerMatchAnalyzer:
                 "ball_events_available": self.profile != "aerial",
                 "frames": total, "calibrated_frames": self.state.calibrated_frames,
                 "calibration_coverage_pct": round(100 * self.state.calibrated_frames / total, 1) if total else 0,
+                "optical_flow_calibrated_frames": sum(s.get('calibration_method') == 'pitch_optical_flow' for s in self.samples),
+                "pass_evidence": "confirmed_control_and_observed_ball_flight",
                 "unresolved_identities": sum(p["jersey_number"] is None for p in self.report()),
                 "identity_conflicts": len(self.state.ambiguous_jerseys),
                 "unknown_possession_seconds": round(self.state.unknown_seconds, 2),

@@ -26,9 +26,11 @@
   </svg></div>
   <div class="legend"><span><i class="dot" style="background:#ff1493"></i>Équipe A</span><span><i class="dot" style="background:#00bfff"></i>Équipe B</span><span><i class="dot" style="background:#a7b4c4"></i>Non attribuée</span><span><i class="dot" style="background:white"></i>Ballon</span></div>
   <div class="status" id="map-status" role="status"></div>
+  <div class="status">Déplacements lissés. Les repères en pointillés comblent une brève détection manquante ; ils ne comptent pas dans les statistiques.</div>
  </section>
 </div>
 <div class="section-label">Accéder à une action</div><div id="events" class="events"></div>
+<script src="replay.js"></script>
 <script>
 // Streamlit component v1 wire protocol. No dependency, CDN or inference required.
 const video=document.getElementById('video'), scrub=document.getElementById('scrub');
@@ -57,14 +59,15 @@ function draw(force=false){
  const t=video.currentTime;el('clock').textContent=t.toFixed(2)+' s';scrub.value=t;
  let lo=0,hi=args.frames.length-1,idx=-1;
  while(lo<=hi){const m=(lo+hi)>>1;if(args.frames[m].time_s<=t+.001){idx=m;lo=m+1}else hi=m-1}
- if(idx===frameIndex&&!force)return;frameIndex=idx;
+ frameIndex=idx;
  const frame=args.frames[idx];['people','paths','ball'].forEach(id=>el(id).replaceChildren());
  const valid=frame&&frame.calibrated&&t<frame.time_s+frame.dt+.001;
  el('pitch').dataset.time=frame?String(frame.time_s):'';el('pitch').dataset.calibrated=String(!!valid);
  el('unavailable').textContent=valid?'':'Terrain non calibré à cet instant';
  if(!valid){el('map-status').textContent='Positions indisponibles · aucune extrapolation';return}
  const focus=args.focus;
- for(const p of frame.players){
+ const display=displayPositions(args.frames,idx,t,args.events);
+ for(const p of display){
   const color=colors[p.team_id]||'#a7b4c4', selected=focus===null||focus===p.identity_id;
   if(el('trails').checked&&selected){
    let path='',last=null;
@@ -78,16 +81,17 @@ function draw(force=false){
    shape('path',{d:path,fill:'none',stroke:color,'stroke-width':.5,opacity:.6},el('paths'));
   }
   const g=shape('g',{'data-identity':p.identity_id,opacity:selected?1:.25},el('people'));
-  shape('circle',{cx:p.xy[0],cy:p.xy[1],r:focus===p.identity_id?1.35:1,fill:color,stroke:frame.possessor===p.identity_id?'#fff':'#0e1117','stroke-width':.4},g);
+  shape('circle',{cx:p.xy[0],cy:p.xy[1],r:focus===p.identity_id?1.35:1,fill:p.interpolated?'none':color,stroke:p.interpolated?color:frame.possessor===p.identity_id?'#fff':'#0e1117','stroke-width':.4,'stroke-dasharray':p.interpolated?'.7 .4':'none'},g);
   const name=args.labels[p.identity_id]||('ID'+p.identity_id);
-  shape('title',{},g).textContent=name+' · '+p.xy.map(v=>v.toFixed(1)).join(', ')+' m';
+  shape('title',{},g).textContent=name+' · '+p.xy.map(v=>v.toFixed(1)).join(', ')+' m'+(p.interpolated?' · position interpolée':'');
   if(selected)shape('text',{x:p.xy[0],y:p.xy[1]-1.9,'text-anchor':'middle',fill:'#e6edf3','font-size':2.4,'paint-order':'stroke',stroke:'#122a25','stroke-width':.6},g).textContent=args.numbers[p.identity_id]?'#'+args.numbers[p.identity_id]:'ID'+p.identity_id;
  }
  if(frame.ball){shape('circle',{cx:frame.ball[0],cy:frame.ball[1],r:.75,fill:'#fff',stroke:'#111','stroke-width':.25},el('ball'))}
- el('map-status').textContent=`${frame.players.length} pistes visibles · ${args.ball_available===false?'ballon non analysé':frame.ball?'ballon projeté':'ballon non localisé'} · ${frame.time_s.toFixed(2)} s`;
+ const estimated=display.filter(p=>p.interpolated).length;
+ el('map-status').textContent=`${frame.players.length} pistes observées${estimated?' · '+estimated+' interpolée(s)':''} · ${args.ball_available===false?'ballon non analysé':frame.ball?'ballon projeté':'ballon non localisé'}${frame.calibration_method==='pitch_optical_flow'?' · calibration suivie':''} · ${t.toFixed(2)} s`;
 }
 function render(next){
- args=next;drawPitch();scrub.min=args.start;scrub.max=args.end;scrub.step=args.frames[0]?.dt||.04;
+ args=next;drawPitch();scrub.min=args.start;scrub.max=args.end;scrub.step=1/(args.source_fps||25);
  el('window').textContent=`${args.start.toFixed(1)} – ${args.end.toFixed(1)} s`;
  if(mediaId!==args.media_id){
   mediaId=args.media_id;video.pause();if(objectUrl)URL.revokeObjectURL(objectUrl);
@@ -97,7 +101,7 @@ function render(next){
  el('events').replaceChildren();
  const names={probable_pass:'Passe probable',control_change:'Contrôle changé',camera_cut:'Coupure caméra'};
  const events=args.events.filter(e=>e.time_s>=args.start&&e.time_s<args.end&&(e.start_s??e.time_s)>=args.start&&names[e.type]);
- for(const event of events){const button=document.createElement('button');button.type='button';const time=document.createElement('span');time.className='event-time';time.textContent=event.time_s.toFixed(1)+' s';button.append(time);button.append(document.createTextNode(names[event.type]+(event.from!==undefined?` · ${args.labels[event.from]||'ID'+event.from} → ${args.labels[event.to]||'ID'+event.to}`:'')));button.onclick=()=>{video.pause();seek(event.time_s)};el('events').appendChild(button)}
+ for(const event of events){const button=document.createElement('button');button.type='button';const time=document.createElement('span');time.className='event-time';time.textContent=event.time_s.toFixed(1)+' s';button.append(time);button.append(document.createTextNode(names[event.type]+(event.from!==undefined?` · ${args.labels[event.from]||'ID'+event.from} → ${args.labels[event.to]||'ID'+event.to}`:'')));button.title='Revoir l’action depuis son départ';button.onclick=()=>{video.pause();seek(Math.max(args.start,(event.start_s??event.time_s)-.25))};el('events').appendChild(button)}
  if(!events.length){const text=document.createElement('span');text.className='empty';text.textContent=args.ball_available===false?'Événements de ballon non analysés pour cette vue. Explorez les déplacements avec le curseur vidéo.':'Aucune transition détectée sur cette période. Explorez avec le curseur vidéo.';el('events').appendChild(text)}
  draw(true);height();
 }
