@@ -1,7 +1,9 @@
 # Résultats mesurés — 24 septembre 2026
 
-Dernière vérification : [passes et continuité des cinq démos](CONTINUITY.md), avec
-première passe retrouvée, rendu à 25 images/s et comparaison des événements avant/après.
+Dernière vérification : [détection, équipes et associations de maillots](JERSEY_IDENTITY.md).
+Elle prolonge les corrections de [passes et continuité](CONTINUITY.md), avec première
+passe retrouvée et rendu à 25 images/s. Les expériences ci-dessous sont historiques ;
+les derniers résultats des démos sont dans ces deux rapports.
 
 ## Affinage YOLO11 du terrain
 
@@ -63,7 +65,7 @@ Les vidéos annotées et JSON complets sont conservés localement sous
 `runs/football/validated-botsort` et `runs/football/validated-yolo11`.
 Les cinq démonstrations ont ensuite été régénérées pour l'atelier tactique décrit ci-dessous.
 
-## Démonstrations de l'atelier tactique — recalculées
+## Démonstrations de l'atelier tactique — première version recalculée
 
 Chaque vidéo couvre douze secondes, avec 150 images analysées (25 images/s, pas de 2),
 BoT-SORT, OCR et les trois détecteurs football historiques. La géométrie a été corrigée
@@ -98,7 +100,7 @@ une performance temps réel ou un comportement identique sur Streamlit Cloud.
 La comparaison avant/après de la géométrie, les limites de précision et les tests
 sur trois passages TeamTrack 4K sont dans [le rapport dédié](AERIAL_CALIBRATION.md).
 Les essais historiques ci-dessus conservent leurs résultats d’origine ; les démos
-ci-dessus décrivent les fichiers recalculés actuellement publiés.
+ci-dessus décrivent une version antérieure aux corrections de continuité et de maillots.
 
 ## Vérification logicielle
 

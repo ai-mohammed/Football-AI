@@ -26,7 +26,8 @@ imageio-ffmpeg>=0.6,<0.7
 # if these aren't installed. Kept out of the default install because both are
 # heavy and prone to dependency conflicts, which can break cloud builds:
 #   inference : only needed for the "API Roboflow hébergée" model source
-#   easyocr   : only needed for jersey-number reading in "Analyse par joueur"
-#               (that mode is itself GPU-only, so it's dead weight without one)
+#   easyocr   : fallback jersey-number reading (CPU supported, slower)
+#   requirements-jersey.txt + model setup: soccer-specific jersey reader
+#               See docs/JERSEY_NUMBERS.md. Demos need neither reader installed.
 # pip install inference
 # pip install easyocr

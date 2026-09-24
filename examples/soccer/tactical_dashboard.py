@@ -10,6 +10,8 @@ import streamlit.components.v1 as components
 
 from sports.common.segments import (EVENT_NAMES, TEAM_NAMES, label, occupancy,
                                     pass_network, structure, summarize)
+from sports.common.roster import apply_numbers, registry, review_version
+from jersey_review import render_jersey_review
 
 WIDTH = ({'width': 'stretch'} if tuple(map(int, st.__version__.split('.')[:2])) >= (1, 49)
          else {'use_container_width': True})
@@ -143,6 +145,9 @@ def render_dashboard(data, video_path, clip_id):
     if data.get('schema_version') != 3 or not data.get('frames'):
         st.info('Cet extrait ne contient pas encore de positions horodatées. Régénérez sa démo avec scripts/build_demos.py.')
         return
+    original = data
+    review_key = f'jersey_reviews_{clip_id}_{review_version(data)}'
+    data = apply_numbers(data, st.session_state.get(review_key, {}))
     duration = float(data['duration_s'])
     ball_available = data.get('diagnostics', {}).get('ball_events_available', True)
     if data.get('diagnostics', {}).get('analysis_profile') == 'aerial':
@@ -184,8 +189,8 @@ def render_dashboard(data, video_path, clip_id):
     cols[1].metric('Temps indéterminé', f'{summary["unknown_pct"]:.0f} %')
     cols[2].metric('Passes probables', summary['passes'] if ball_available else 'Non analysées')
     cols[3].metric('Terrain calibré', f'{summary["calibration_pct"]:.0f} %')
-    st.caption(f'Mesures sur {start:.1f}–{end:.1f} s uniquement · ID = piste de suivi ; N° = lecture de maillot confirmée par consensus.')
-    tactical, individual, events_tab, quality = st.tabs(['Tactique', 'Joueurs', 'Événements', 'Fiabilité & exports'])
+    st.caption(f'Mesures sur {start:.1f}–{end:.1f} s uniquement · ID = piste de suivi ; N° = consensus de lectures ou validation dans Maillots.')
+    tactical, individual, jerseys, events_tab, quality = st.tabs(['Tactique', 'Joueurs', 'Maillots', 'Événements', 'Fiabilité & exports'])
     with tactical:
         st.subheader('Rythme du contrôle', divider=False)
         if ball_available:
@@ -260,6 +265,8 @@ def render_dashboard(data, video_path, clip_id):
             st.info('Sélectionnez une ou deux pistes ayant une position sur le terrain pendant cette période.')
         st.dataframe(player_table(summary), hide_index=True, **WIDTH)
         st.caption('La distance exclut les pertes de suivi, coupures et sauts invraisemblables. La vitesse est sensible aux erreurs de calibration. Plusieurs pistes peuvent correspondre à une même personne ; le tableau ne constitue pas un effectif de onze joueurs.')
+    with jerseys:
+        render_jersey_review(data, original, review_key, WIDTH)
     with events_tab:
         st.subheader('Transitions observées')
         choices = st.multiselect('Types d’événements', list(EVENT_NAMES), default=list(EVENT_NAMES),
@@ -277,13 +284,13 @@ def render_dashboard(data, video_path, clip_id):
         a.metric('Ballon localisé sur le terrain', f'{summary["ball_pct"]:.0f} %' if ball_available else 'Non analysé')
         b.metric('Pistes cartographiées', len(summary['players']))
         c.metric('Maillots confirmés', sum(bool(players[p['identity_id']].get('jersey_number')) for p in summary['players'])
-                 if data.get('diagnostics', {}).get('ocr_enabled', True) else 'Non analysés')
+                 if data.get('diagnostics', {}).get('ocr_enabled', True) or st.session_state.get(review_key) else 'Non analysés')
         st.write('Les calculs portent sur les joueurs dans le champ de la caméra. Les périodes sans calibration ou sans contrôle identifiable restent explicitement inconnues.')
         st.caption(f'Terrain de référence : {data["pitch"]["length"]:g} × {data["pitch"]["width"]:g} m. Dimensions réelles du stade non vérifiées. Tirs, xG, fautes et corners ne sont pas déduits de ces données.')
         with st.expander('Méthode et paramètres du calcul'):
             diagnostics = {k: v for k, v in data.get('diagnostics', {}).items() if k != 'events'}
             st.json(diagnostics)
-            st.caption('Les numéros de maillot sont des consensus OCR ; un contrôle humain reste nécessaire. Les équipes A et B sont des groupes de couleurs, sans identification du club.')
+            st.caption('Les numéros automatiques sont des consensus de lectures. Les validations humaines sont identifiées dans Maillots. Les équipes A et B sont des groupes de couleurs, sans identification du club.')
         st.subheader('Exporter cette période')
         a, b, c = st.columns(3)
         a.download_button('Joueurs · CSV', player_table(summary).to_csv(index=False).encode('utf-8-sig'),
@@ -291,6 +298,7 @@ def render_dashboard(data, video_path, clip_id):
         b.download_button('Événements · CSV', event_table(summary['events'], data).to_csv(index=False).encode('utf-8-sig'),
             file_name=f'{clip_id}_{start:g}-{end:g}_evenements.csv', mime='text/csv', **WIDTH)
         export = {'schema_version': 3, 'source_video': data['source_video'],
+                  'identity_registry': registry(data),
                   'source_start_s': data.get('source_start_s', 0.), 'pitch': data['pitch'],
                   'diagnostics': {k: v for k, v in data.get('diagnostics', {}).items() if k != 'events'},
                   'window': {'start_s': start, 'end_s': end},

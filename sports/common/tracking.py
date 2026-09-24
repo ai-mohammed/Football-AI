@@ -10,6 +10,32 @@ import supervision as sv
 _ID_LOCK = Lock()
 
 
+def distinct_person_indices(xy, confidence, threshold=.85):
+    """Indices of spatially distinct people, in the original input order."""
+    order = np.argsort(-confidence, kind='stable')
+    keep = []
+    for index in order:
+        if keep:
+            other = xy[keep]
+            intersection = np.maximum(0, np.minimum(xy[index, 2:], other[:, 2:])
+                                       - np.maximum(xy[index, :2], other[:, :2])).prod(axis=1)
+            area = (xy[index, 2:]-xy[index, :2]).prod()
+            union = area+(other[:, 2:]-other[:, :2]).prod(axis=1)-intersection
+            if np.any(intersection/np.maximum(union, 1e-8) > threshold):
+                continue
+        keep.append(int(index))
+    return np.asarray(sorted(keep), dtype=int)
+
+
+def distinct_people(boxes, threshold=.85):
+    """Remove near-identical player/keeper/referee boxes before allocating IDs.
+
+    Class-aware detector NMS can retain the same person under two roles. This
+    high-IoU guard keeps ordinary overlapping players and imposes no roster cap.
+    """
+    return boxes[distinct_person_indices(boxes.xyxy, boxes.conf, threshold)]
+
+
 class FootballTracker:
     def __init__(self, backend="bytetrack", fps=25, buffer_seconds=3.0, device="cpu",
                  reid_model="yolo11n-cls.pt", minimum_box_side_ratio=0.):
@@ -57,6 +83,7 @@ class FootballTracker:
         # Track football people only. The dedicated ball tracker is separate.
         boxes = result.boxes.cpu().numpy()
         boxes = boxes[np.isin(boxes.cls, [1, 2, 3])]
+        boxes = distinct_people(boxes)
         original_boxes = boxes.xyxy.copy()
         if self.minimum_box_side_ratio and len(boxes):
             # Small overhead players can move further than their box width
@@ -74,12 +101,16 @@ class FootballTracker:
             empty = sv.Detections.empty()
             empty.tracker_id = np.empty(0, dtype=int)
             return empty
+        output_boxes = original_boxes[tracks[:, -1].astype(int)] if self.minimum_box_side_ratio else tracks[:, :4]
+        # Kalman updates can bring two surviving boxes onto the same person.
+        # Apply the same spatial guard to the exported observation as well.
+        selected = distinct_person_indices(output_boxes, tracks[:, 5])
+        tracks, output_boxes = tracks[selected], output_boxes[selected]
         ids = []
         for raw in tracks[:, 4].astype(int):
             if raw not in self.namespace:
                 self.namespace[raw] = self.next_id
                 self.next_id += 1
             ids.append(self.namespace[raw])
-        output_boxes = original_boxes[tracks[:, -1].astype(int)] if self.minimum_box_side_ratio else tracks[:, :4]
         return sv.Detections(xyxy=output_boxes, confidence=tracks[:, 5],
                              class_id=tracks[:, 6].astype(int), tracker_id=np.asarray(ids))

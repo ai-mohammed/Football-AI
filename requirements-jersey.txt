@@ -1,0 +1,4 @@
+# Optional recognition of football jersey numbers (model installed separately).
+timm>=1.0.22,<1.1
+safetensors>=0.4,<1
+gdown

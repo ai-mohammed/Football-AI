@@ -1,0 +1,523 @@
+{
+  "date": "2026-09-24",
+  "baseline_commit": "b140cf4cab4799941c80f4d4caf2ee3f5b10e715",
+  "protocol": "Five existing 1080p broadcast clips, first 12 seconds, stride 2, BoT-SORT, historical football detectors, RTX 3080",
+  "interpretation": "Pipeline output counts and selected visual checks, not annotated recognition or tracking accuracy.",
+  "model": {
+    "source": "https://github.com/lukaszgrad/uncertainty-jnr",
+    "author": "Lukasz Grad",
+    "variant": "small16_reid",
+    "checkpoint_sha256": "536ec612136ec522f23bcf3ebf88b4d794c6fc02ea0f7e301cd22eeb259df4e6",
+    "license_file": "CC-BY-NC-SA-4.0",
+    "readme_license": "CC-BY-SA-4.0"
+  },
+  "clips": {
+    "08fd33_0": {
+      "before": {
+        "analysis_sha256": "e54a4f007109f044592a7c490ef10193c6901e56617778d24265f3f167128bba",
+        "identities": 26,
+        "jersey_consensus_count": 1,
+        "jersey_assignments": [
+          {
+            "id": 11,
+            "team": 0,
+            "number": "4"
+          }
+        ],
+        "high_overlap_person_pair_samples_iou_gt_085": 3,
+        "passes": [
+          {
+            "type": "probable_pass",
+            "time_s": 2.32,
+            "start_s": 0.48,
+            "evidence": "observed_ball_flight",
+            "team_id": 0,
+            "from": 22,
+            "to": 3
+          },
+          {
+            "type": "probable_pass",
+            "time_s": 5.44,
+            "start_s": 4.48,
+            "evidence": "observed_ball_flight",
+            "team_id": 0,
+            "from": 3,
+            "to": 11
+          },
+          {
+            "type": "probable_pass",
+            "time_s": 9.52,
+            "start_s": 7.36,
+            "evidence": "observed_ball_flight",
+            "team_id": 0,
+            "from": 11,
+            "to": 14
+          }
+        ],
+        "calibrated_samples": 150,
+        "analysis_samples": 150,
+        "render_frames": 300,
+        "render_fps": 25.0,
+        "video_bytes": 3860614,
+        "analysis_bytes": 1562193
+      },
+      "after": {
+        "analysis_sha256": "dda46205e6fb66c5679acb63a56568a5282f82a2a598d56125336fa12bae18cd",
+        "identities": 23,
+        "jersey_consensus_count": 9,
+        "jersey_assignments": [
+          {
+            "id": 11,
+            "team": 0,
+            "number": "6"
+          },
+          {
+            "id": 1,
+            "team": 1,
+            "number": "23"
+          },
+          {
+            "id": 2,
+            "team": 1,
+            "number": "8"
+          },
+          {
+            "id": 4,
+            "team": 1,
+            "number": "9"
+          },
+          {
+            "id": 5,
+            "team": 1,
+            "number": "15"
+          },
+          {
+            "id": 8,
+            "team": 0,
+            "number": "14"
+          },
+          {
+            "id": 15,
+            "team": 0,
+            "number": "28"
+          },
+          {
+            "id": 16,
+            "team": 0,
+            "number": "18"
+          },
+          {
+            "id": 17,
+            "team": 1,
+            "number": "25"
+          }
+        ],
+        "high_overlap_person_pair_samples_iou_gt_085": 0,
+        "passes": [
+          {
+            "type": "probable_pass",
+            "time_s": 2.32,
+            "start_s": 0.48,
+            "evidence": "observed_ball_flight",
+            "team_id": 0,
+            "from": 22,
+            "to": 3
+          },
+          {
+            "type": "probable_pass",
+            "time_s": 5.44,
+            "start_s": 4.48,
+            "evidence": "observed_ball_flight",
+            "team_id": 0,
+            "from": 3,
+            "to": 11
+          },
+          {
+            "type": "probable_pass",
+            "time_s": 9.52,
+            "start_s": 7.36,
+            "evidence": "observed_ball_flight",
+            "team_id": 0,
+            "from": 11,
+            "to": 14
+          }
+        ],
+        "calibrated_samples": 150,
+        "analysis_samples": 150,
+        "render_frames": 300,
+        "render_fps": 25.0,
+        "video_bytes": 3835088,
+        "analysis_bytes": 1720389
+      }
+    },
+    "0bfacc_0": {
+      "before": {
+        "analysis_sha256": "35a2e689dcce6827d29abd56c94416e4968eacd577fd877cb2e4620678b7c632",
+        "identities": 27,
+        "jersey_consensus_count": 1,
+        "jersey_assignments": [
+          {
+            "id": 24,
+            "team": 0,
+            "number": "1"
+          }
+        ],
+        "high_overlap_person_pair_samples_iou_gt_085": 3,
+        "passes": [
+          {
+            "type": "probable_pass",
+            "time_s": 1.6,
+            "start_s": 0.64,
+            "evidence": "observed_ball_flight",
+            "team_id": 1,
+            "from": 6,
+            "to": 12
+          },
+          {
+            "type": "probable_pass",
+            "time_s": 3.84,
+            "start_s": 2.4,
+            "evidence": "observed_ball_flight",
+            "team_id": 1,
+            "from": 12,
+            "to": 4
+          },
+          {
+            "type": "probable_pass",
+            "time_s": 6.640000000000001,
+            "start_s": 6.08,
+            "evidence": "observed_ball_flight",
+            "team_id": 1,
+            "from": 4,
+            "to": 7
+          },
+          {
+            "type": "probable_pass",
+            "time_s": 8.4,
+            "start_s": 7.28,
+            "evidence": "observed_ball_flight",
+            "team_id": 1,
+            "from": 7,
+            "to": 12
+          },
+          {
+            "type": "probable_pass",
+            "time_s": 10.8,
+            "start_s": 9.52,
+            "evidence": "observed_ball_flight",
+            "team_id": 1,
+            "from": 12,
+            "to": 2
+          }
+        ],
+        "calibrated_samples": 150,
+        "analysis_samples": 150,
+        "render_frames": 300,
+        "render_fps": 25.0,
+        "video_bytes": 3463620,
+        "analysis_bytes": 1515862
+      },
+      "after": {
+        "analysis_sha256": "61914fbee1738a93a11065e841247d651ff81d06727be3cd86634a7ae422e34c",
+        "identities": 24,
+        "jersey_consensus_count": 5,
+        "jersey_assignments": [
+          {
+            "id": 8,
+            "team": 0,
+            "number": "2"
+          },
+          {
+            "id": 11,
+            "team": 0,
+            "number": "36"
+          },
+          {
+            "id": 18,
+            "team": 0,
+            "number": "22"
+          },
+          {
+            "id": 20,
+            "team": 0,
+            "number": "13"
+          },
+          {
+            "id": 24,
+            "team": 0,
+            "number": "7"
+          }
+        ],
+        "high_overlap_person_pair_samples_iou_gt_085": 0,
+        "passes": [
+          {
+            "type": "probable_pass",
+            "time_s": 1.6,
+            "start_s": 0.64,
+            "evidence": "observed_ball_flight",
+            "team_id": 1,
+            "from": 6,
+            "to": 12
+          },
+          {
+            "type": "probable_pass",
+            "time_s": 3.84,
+            "start_s": 2.4,
+            "evidence": "observed_ball_flight",
+            "team_id": 1,
+            "from": 12,
+            "to": 4
+          },
+          {
+            "type": "probable_pass",
+            "time_s": 6.640000000000001,
+            "start_s": 6.08,
+            "evidence": "observed_ball_flight",
+            "team_id": 1,
+            "from": 4,
+            "to": 7
+          },
+          {
+            "type": "probable_pass",
+            "time_s": 8.4,
+            "start_s": 7.28,
+            "evidence": "observed_ball_flight",
+            "team_id": 1,
+            "from": 7,
+            "to": 12
+          },
+          {
+            "type": "probable_pass",
+            "time_s": 10.8,
+            "start_s": 9.52,
+            "evidence": "observed_ball_flight",
+            "team_id": 1,
+            "from": 12,
+            "to": 2
+          }
+        ],
+        "calibrated_samples": 150,
+        "analysis_samples": 150,
+        "render_frames": 300,
+        "render_fps": 25.0,
+        "video_bytes": 3448687,
+        "analysis_bytes": 1666643
+      }
+    },
+    "121364_0": {
+      "before": {
+        "analysis_sha256": "2c832d6baa9f409b7fe45c8cd380a8b0b390c4f4a8fdc24793f46d709a670107",
+        "identities": 30,
+        "jersey_consensus_count": 0,
+        "jersey_assignments": [],
+        "high_overlap_person_pair_samples_iou_gt_085": 0,
+        "passes": [
+          {
+            "type": "probable_pass",
+            "time_s": 6.16,
+            "start_s": 5.28,
+            "evidence": "observed_ball_flight",
+            "team_id": 0,
+            "from": 7,
+            "to": 1
+          },
+          {
+            "type": "probable_pass",
+            "time_s": 9.68,
+            "start_s": 7.44,
+            "evidence": "observed_ball_flight",
+            "team_id": 0,
+            "from": 1,
+            "to": 24
+          }
+        ],
+        "calibrated_samples": 150,
+        "analysis_samples": 150,
+        "render_frames": 300,
+        "render_fps": 25.0,
+        "video_bytes": 3545714,
+        "analysis_bytes": 1483467
+      },
+      "after": {
+        "analysis_sha256": "d3cdd5e27114f90da0a9b11bd9df8b77d02edebd43a2a15c406c89ae56fa060b",
+        "identities": 30,
+        "jersey_consensus_count": 3,
+        "jersey_assignments": [
+          {
+            "id": 9,
+            "team": 1,
+            "number": "6"
+          },
+          {
+            "id": 16,
+            "team": 1,
+            "number": "14"
+          },
+          {
+            "id": 27,
+            "team": 1,
+            "number": "24"
+          }
+        ],
+        "high_overlap_person_pair_samples_iou_gt_085": 0,
+        "passes": [
+          {
+            "type": "probable_pass",
+            "time_s": 6.16,
+            "start_s": 5.28,
+            "evidence": "observed_ball_flight",
+            "team_id": 0,
+            "from": 7,
+            "to": 1
+          },
+          {
+            "type": "probable_pass",
+            "time_s": 9.68,
+            "start_s": 7.44,
+            "evidence": "observed_ball_flight",
+            "team_id": 0,
+            "from": 1,
+            "to": 24
+          }
+        ],
+        "calibrated_samples": 150,
+        "analysis_samples": 150,
+        "render_frames": 300,
+        "render_fps": 25.0,
+        "video_bytes": 3547269,
+        "analysis_bytes": 1670317
+      }
+    },
+    "2e57b9_0": {
+      "before": {
+        "analysis_sha256": "19d25c55994849bb106cea4c505ac15ec3c21aab2a4c7ff20eee66c2383ab105",
+        "identities": 26,
+        "jersey_consensus_count": 0,
+        "jersey_assignments": [],
+        "high_overlap_person_pair_samples_iou_gt_085": 4,
+        "passes": [],
+        "calibrated_samples": 150,
+        "analysis_samples": 150,
+        "render_frames": 300,
+        "render_fps": 25.0,
+        "video_bytes": 3840964,
+        "analysis_bytes": 1530295
+      },
+      "after": {
+        "analysis_sha256": "4d7860aaa4436f6194c5672daedbbfd8ed4e4aa1254bbae879c0100f5243e470",
+        "identities": 23,
+        "jersey_consensus_count": 0,
+        "jersey_assignments": [],
+        "high_overlap_person_pair_samples_iou_gt_085": 0,
+        "passes": [],
+        "calibrated_samples": 150,
+        "analysis_samples": 150,
+        "render_frames": 300,
+        "render_fps": 25.0,
+        "video_bytes": 3847736,
+        "analysis_bytes": 1648189
+      }
+    },
+    "573e61_0": {
+      "before": {
+        "analysis_sha256": "834847b016e6a0b3a5e3712c1d03d61a25019d062e9016e364810fee99eb6e65",
+        "identities": 34,
+        "jersey_consensus_count": 0,
+        "jersey_assignments": [],
+        "high_overlap_person_pair_samples_iou_gt_085": 5,
+        "passes": [
+          {
+            "type": "probable_pass",
+            "time_s": 8.72,
+            "start_s": 7.68,
+            "evidence": "observed_ball_flight",
+            "team_id": 0,
+            "from": 24,
+            "to": 22
+          }
+        ],
+        "calibrated_samples": 149,
+        "analysis_samples": 150,
+        "render_frames": 300,
+        "render_fps": 25.0,
+        "video_bytes": 3804828,
+        "analysis_bytes": 1545195
+      },
+      "after": {
+        "analysis_sha256": "3625d67dacdd849ada6b89106033f87390523f06e902b38d0fdf936e25b75d1d",
+        "identities": 30,
+        "jersey_consensus_count": 10,
+        "jersey_assignments": [
+          {
+            "id": 2,
+            "team": 0,
+            "number": "11"
+          },
+          {
+            "id": 3,
+            "team": 0,
+            "number": "5"
+          },
+          {
+            "id": 4,
+            "team": 1,
+            "number": "30"
+          },
+          {
+            "id": 5,
+            "team": 0,
+            "number": "14"
+          },
+          {
+            "id": 6,
+            "team": 0,
+            "number": "9"
+          },
+          {
+            "id": 8,
+            "team": 0,
+            "number": "7"
+          },
+          {
+            "id": 9,
+            "team": 0,
+            "number": "27"
+          },
+          {
+            "id": 10,
+            "team": 1,
+            "number": "25"
+          },
+          {
+            "id": 11,
+            "team": 1,
+            "number": "4"
+          },
+          {
+            "id": 17,
+            "team": 1,
+            "number": "8"
+          }
+        ],
+        "high_overlap_person_pair_samples_iou_gt_085": 0,
+        "passes": [
+          {
+            "type": "probable_pass",
+            "time_s": 8.72,
+            "start_s": 7.68,
+            "evidence": "observed_ball_flight",
+            "team_id": 0,
+            "from": 24,
+            "to": 22
+          }
+        ],
+        "calibrated_samples": 149,
+        "analysis_samples": 150,
+        "render_frames": 300,
+        "render_fps": 25.0,
+        "video_bytes": 3789686,
+        "analysis_bytes": 1710170
+      }
+    }
+  }
+}

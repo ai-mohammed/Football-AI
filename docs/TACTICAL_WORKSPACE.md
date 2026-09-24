@@ -7,7 +7,7 @@
 1. Ouvrir **Extraits analysés** et sélectionner un passage dans la bibliothèque.
 2. Choisir la période étudiée et, éventuellement, une piste à suivre.
 3. Lire la vidéo, avancer image par image ou sélectionner une action sous le lecteur.
-4. Explorer **Tactique**, **Joueurs**, **Événements** et **Fiabilité & exports**.
+4. Explorer **Tactique**, **Joueurs**, **Maillots**, **Événements** et **Fiabilité & exports**.
 
 Le curseur du lecteur contrôle l'instant affiché sur la carte. Le filtre « Période étudiée »
 contrôle les statistiques agrégées et borne la lecture. Les exports CSV/JSON respectent
@@ -49,6 +49,7 @@ sont exclus de ses comptes. Aucune précision événementielle n'est revendiqué
 - `frames[].control_candidate` : proximité brute avant confirmation ; `ball_image_xy` : ballon détecté en pixels ;
 - champs facultatifs d'audit : `source_resolution`, `frames[].image_detections` (boîtes source en pixels), `calibration_method`, `pitch_boundary_px` ;
 - `players` : identité, pistes associées, hypothèse de maillot, trajectoire et `motion_samples` ;
+- `players[].jersey_status`, `jersey_candidates`, `jersey_evidence` et `jersey_previews` : état de la lecture, votes horodatés et jusqu’à trois recadrages JPEG encodés en base64 ;
 - `events` : transitions horodatées, coupures et diagnostics d'identité ;
 - `diagnostics` : méthodes utilisées, couverture et paramètres.
 
@@ -79,6 +80,13 @@ consensus équipe/maillot sont résolues dans les positions et les événements 
 La couleur d'équipe d'un échantillon conserve l'attribution observée à cet instant.
 Le numéro affiché dans le tableau de bord est le consensus obtenu sur l'ensemble de l'extrait,
 et la vidéo des démos et imports utilise ce même consensus final pour stabiliser les libellés. Le générateur d’analyse en continu conserve les hypothèses disponibles au moment de chaque image.
+
+Dans **Maillots**, une validation humaine remplace le libellé automatique pour la session,
+avec le statut `reviewed`. Elle ne fusionne pas les identités et ne réécrit ni événements
+ni positions. Le JSON de la fenêtre ajoute `identity_registry`, incluant les associations
+de l’extrait entier et leurs preuves ; le CSV dédié exporte ID, pistes, équipe, maillot et
+statut. La vidéo précalculée conserve ses incrustations initiales. Voir [le protocole de
+lecture et la provenance du modèle](JERSEY_NUMBERS.md).
 
 ## Architecture et performances
 

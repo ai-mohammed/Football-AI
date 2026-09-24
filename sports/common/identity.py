@@ -3,7 +3,7 @@
 Track IDs, jersey hypotheses and confirmed identities are deliberately separate.
 No rule caps the number of tracks at eleven or merges co-visible players.
 """
-from collections import Counter
+from collections import Counter, deque
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -15,6 +15,9 @@ class PlayerState:
     team_id: int | None = None
     team_votes: Counter = field(default_factory=Counter)
     jersey_votes: Counter = field(default_factory=Counter)
+    jersey_weights: Counter = field(default_factory=Counter)
+    jersey_evidence: list = field(default_factory=list)
+    recent_teams: deque = field(default_factory=lambda: deque(maxlen=12))
     track_ids: set = field(default_factory=set)
     intervals: dict = field(default_factory=dict)
     trajectory: list = field(default_factory=list)
@@ -32,7 +35,8 @@ class PlayerState:
         if not self.jersey_votes:
             return None
         number, votes = self.jersey_votes.most_common(1)[0]
-        return number if votes >= 3 and votes / self.jersey_votes.total() >= 0.8 else None
+        mean_score = self.jersey_weights[number]/votes if self.jersey_weights else 1.
+        return number if votes >= 3 and votes / self.jersey_votes.total() >= 0.8 and mean_score >= .75 else None
 
 
 class MatchState:
@@ -57,16 +61,23 @@ class MatchState:
             track = self.redirect[track]
         return track
 
-    def observe(self, track, team, timestamp):
+    def observe(self, track, team, timestamp, confidence=1.):
         identity = self.resolve(track)
         state = self.players.setdefault(identity, PlayerState())
         state.track_ids.add(int(track))
         interval = state.intervals.setdefault(int(track), [timestamp, timestamp])
         interval[1] = timestamp
         if team in (0, 1):
-            state.team_votes[int(team)] += 1
-            candidate, count = state.team_votes.most_common(1)[0]
-            if state.team_id is None or (count >= 5 and count > 1.5 * state.team_votes[state.team_id]):
+            weight = float(np.clip(confidence, 0, 1))
+            if weight <= 0:
+                return state
+            state.team_votes[int(team)] += weight
+            state.recent_teams.append((int(team), weight))
+            recent = Counter()
+            for label, strength in state.recent_teams:
+                recent[label] += strength
+            candidate, count = recent.most_common(1)[0]
+            if state.team_id is None or (count >= 5 and count > 1.5 * recent[state.team_id]):
                 state.team_id = candidate
         return state
 
@@ -98,12 +109,18 @@ class MatchState:
         return any(max(x[0], y[0]) <= min(x[1], y[1])
                    for x in a.intervals.values() for y in b.intervals.values())
 
-    def jersey_read(self, track, number, confidence=1.0):
+    def jersey_read(self, track, number, confidence=1.0, timestamp=None, source='ocr'):
         if confidence < 0.65 or not str(number).isdigit() or not 1 <= int(number) <= 99:
             return
         identity = self.resolve(track)
         state = self.players[identity]
+        if timestamp is not None and any(e['track_id'] == int(track) and e['time_s'] is not None
+                                         and abs(timestamp-e['time_s']) < .16-1e-6 for e in state.jersey_evidence):
+            return  # Multiple variants of one image are not independent evidence.
         state.jersey_votes[str(int(number))] += 1
+        state.jersey_weights[str(int(number))] += confidence
+        state.jersey_evidence.append({'track_id': int(track), 'number': str(int(number)),
+                                     'confidence': round(float(confidence), 4), 'time_s': timestamp, 'source': source})
         jersey = state.jersey()
         if jersey is None or state.team_id is None:
             return
@@ -136,6 +153,8 @@ class MatchState:
         dst.intervals.update(src.intervals)
         dst.team_votes.update(src.team_votes)
         dst.jersey_votes.update(src.jersey_votes)
+        dst.jersey_weights.update(src.jersey_weights)
+        dst.jersey_evidence.extend(src.jersey_evidence)
         dst.motion_samples = sorted(dst.motion_samples + src.motion_samples, key=lambda s: s['time_s'])
         samples = sorted(zip(dst.timestamps + src.timestamps, dst.trajectory + src.trajectory))
         dst.timestamps = [t for t, _ in samples]
@@ -215,6 +234,14 @@ class MatchState:
             rows.append({"identity_id": identity, "tracker_ids": sorted(state.track_ids),
                          "jersey_number": jersey, "team_id": state.team_id,
                          "identity_status": "jersey_consensus" if jersey else "unresolved_track",
+                         "jersey_status": 'conflict' if (state.team_id, state.jersey()) in self.ambiguous_jerseys
+                                          else 'consensus' if jersey else 'candidate' if state.jersey_votes else 'unreadable',
+                         "jersey_candidates": [{'number': n, 'observations': c,
+                                                'mean_score': round(state.jersey_weights[n]/c, 3)}
+                                               for n, c in state.jersey_votes.most_common(3)],
+                         "jersey_evidence": list(state.jersey_evidence),
+                         "team_vote_share": round(state.team_votes[state.team_id]/state.team_votes.total(), 3)
+                                            if state.team_votes.total() and state.team_id is not None else None,
                          "touches": state.touches, "passes_made": state.passes_made,
                          "passes_received": state.passes_received,
                          "distance_m": round(state.distance_cm / 100, 2),

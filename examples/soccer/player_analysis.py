@@ -1,6 +1,7 @@
 """Football analysis with guarded identities and calibrated, timestamped statistics."""
 import os
 import sys
+import base64
 from collections import Counter
 from typing import Iterator
 
@@ -21,6 +22,7 @@ from sports.common.aerial import TiledPlayerDetector, full_pitch_boundary, bound
 from sports.common.calibration import ShotChangeDetector, pitch_transformer, TemporalPitchCalibrator
 from sports.common.control import ControlFilter
 from sports.common.identity import MatchState
+from sports.common.jersey import JerseyRecognizer, specialist_available, crop_quality, torso_crop
 from sports.common.replay import add_display_positions
 from sports.common.runtime import resolve_device
 from sports.common.team import TeamClassifier
@@ -32,7 +34,7 @@ CONFIG = SoccerPitchConfiguration()
 
 def ocr_available():
     import importlib.util
-    return importlib.util.find_spec("easyocr") is not None
+    return specialist_available() or importlib.util.find_spec("easyocr") is not None
 
 
 def _safe_transformer(keypoints, config=CONFIG):
@@ -77,6 +79,8 @@ class PlayerMatchAnalyzer:
         self.imgsz = imgsz
         self.tiled_detector = TiledPlayerDetector(self.player_model, imgsz=imgsz) if profile == "aerial" else None
         self._ocr_reader = None
+        self.jersey_backend = 'soccer_vit_small16' if self.enable_ocr and specialist_available() else 'easyocr' if self.enable_ocr else 'disabled'
+        self.jersey_previews = {}
         self.state = MatchState(self.config.length, self.config.width)
         self.samples = []
         self.ball_annotator = BallAnnotator(radius=6, buffer_size=10)
@@ -93,6 +97,9 @@ class PlayerMatchAnalyzer:
     @property
     def ocr_reader(self):
         if self._ocr_reader is None:
+            if self.jersey_backend == 'soccer_vit_small16':
+                self._ocr_reader = JerseyRecognizer(self.device)
+                return self._ocr_reader
             import easyocr
             self._ocr_reader = easyocr.Reader(["en"], gpu=self.device.startswith("cuda"), verbose=False)
         return self._ocr_reader
@@ -150,20 +157,22 @@ class PlayerMatchAnalyzer:
             players = detections[detections.class_id == 2]
             keepers = detections[detections.class_id == 1]
             teams = np.full(len(players), -1, dtype=int)
+            team_confidence = np.zeros(len(players))
             refresh = []
             for i, track in enumerate(players.tracker_id):
                 state = self.state.players.get(self.state.resolve(track))
                 if state is not None and state.team_id is not None:
                     teams[i] = state.team_id
-                if state is None or state.team_votes.total() < 10 or index % 15 == 0:
+                if state is None or state.team_votes.total() < 10 or index % 5 == 0:
                     refresh.append(i)
             if team_classifier and refresh:
-                teams[refresh] = team_classifier.predict(get_crops(frame, players[refresh]))
+                teams[refresh], team_confidence[refresh] = team_classifier.predict_with_confidence(get_crops(frame, players[refresh]))
             keeper_teams = resolve_goalkeepers_team_id(players, teams, keepers)
             people = sv.Detections.merge([players, keepers])
             for i, track in enumerate(players.tracker_id):
                 # Cached assignments must not count as fresh evidence.
-                self.state.observe(track, teams[i] if i in refresh else -1, timestamp)
+                self.state.observe(track, teams[i] if i in refresh else -1, timestamp,
+                                   confidence=team_confidence[i])
             for track, team in zip(keepers.tracker_id, keeper_teams):
                 self.state.observe(track, team, timestamp)
 
@@ -239,26 +248,55 @@ class PlayerMatchAnalyzer:
             yield self.ball_annotator.annotate(annotated, ball)
 
     def _sample_jerseys(self, frame, detections, index):
-        import cv2
-        for track, box in zip(detections.tracker_id, detections.xyxy):
+        pending = []
+        for i, (track, box) in enumerate(zip(detections.tracker_id, detections.xyxy)):
             if index % 5 != int(track) % 5:
                 continue
             x1, y1, x2, y2 = box.astype(int)
-            h = y2 - y1
-            crop = frame[max(0, y1 + int(h * 0.12)):max(0, y1 + int(h * 0.60)),
-                         max(0, x1):max(0, x2)]
-            if not crop.size or crop.shape[0] < 12 or crop.shape[1] < 8:
+            crop = frame[max(0, y1):max(0, y2), max(0, x1):max(0, x2)]
+            quality = crop_quality(crop)
+            if quality < .15:
                 continue
-            scale = max(1, 160 / crop.shape[0])
-            crop = cv2.resize(crop, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
-            reads = self.ocr_reader.readtext(crop, allowlist="0123456789", detail=1)
-            reads = [(text, confidence) for _, text, confidence in reads if text.isdigit() and len(text) <= 2]
-            if reads:
-                text, confidence = max(reads, key=lambda item: item[1])
-                self.state.jersey_read(int(track), text, confidence)
+            other = np.delete(detections.xyxy, i, axis=0)
+            if len(other):
+                intersection = np.maximum(0, np.minimum(box[2:], other[:, 2:])-np.maximum(box[:2], other[:, :2])).prod(axis=1)
+                if np.max(intersection)/max(1, (x2-x1)*(y2-y1)) > .3:
+                    continue  # An overlapping player's digits must not name this track.
+            pending.append((int(track), crop, quality))
+        if not pending:
+            return
+        if self.jersey_backend == 'soccer_vit_small16':
+            reads = self.ocr_reader.read([c for _, c, _ in pending])
+        else:
+            reads = []
+            for _, crop, _ in pending:
+                torso = torso_crop(crop)
+                scale = max(1, 160/torso.shape[0])
+                enlarged = cv2.resize(torso, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
+                found = [(text, confidence) for _, text, confidence in self.ocr_reader.readtext(
+                    enlarged, allowlist='0123456789', detail=1) if text.isdigit() and 1 <= len(text) <= 2]
+                number, confidence = max(found, key=lambda x: x[1]) if found else (None, 0.)
+                reads.append({'number': number, 'confidence': confidence, 'uncertainty': None, 'source': 'easyocr'})
+        timestamp = round(index*self.seconds_per_processed_frame, 4)
+        for (track, crop, quality), read in zip(pending, reads):
+            if read['number'] is not None and (read['uncertainty'] is None or read['uncertainty'] <= .2):
+                self.state.jersey_read(track, read['number'], read['confidence'], timestamp, read['source'])
+            preview = {**read, 'time_s': timestamp, 'track_id': track,
+                       'native_resolution': [crop.shape[1], crop.shape[0]], 'quality': round(quality, 3)}
+            _, encoded = cv2.imencode('.jpg', crop, [cv2.IMWRITE_JPEG_QUALITY, 92])
+            preview['image_base64'] = base64.b64encode(encoded).decode('ascii')
+            bank = self.jersey_previews.setdefault(track, [])
+            bank.append(preview)
+            bank.sort(key=lambda p: p['confidence']+p['quality']*.1, reverse=True)
+            del bank[3:]
 
     def report(self):
-        return self.state.report()
+        rows = self.state.report()
+        for row in rows:
+            row['jersey_previews'] = sorted([p for track in row['tracker_ids']
+                                            for p in getattr(self, 'jersey_previews', {}).get(track, [])],
+                                           key=lambda p: p['confidence']+p['quality']*.1, reverse=True)[:3]
+        return rows
 
     def export(self, source_video='', source_fps=25, stride=1):
         """Versioned replay data in metres; no interpolated off-screen positions."""
@@ -306,6 +344,8 @@ class PlayerMatchAnalyzer:
                 "unknown_possession_seconds": round(self.state.unknown_seconds, 2),
                 "pitch_dimensions_m": [self.config.length / 100, self.config.width / 100],
                 "models": self.model_paths, "ocr_enabled": self.enable_ocr,
+                "jersey_backend": self.jersey_backend,
+                "team_clustering": "robust_torso_lab_with_rejection_and_recent_weighted_votes",
                 "events": self.state.events}
 
     def team_report(self):

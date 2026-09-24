@@ -14,6 +14,7 @@ Football AI transforme un **extrait vidéo** en un espace d'analyse tactique : v
 - **Choisir une période** : les indicateurs, cartes, réseaux et exports sont recalculés sur la fenêtre sélectionnée.
 - **Explorer le jeu** : chronologie du contrôle du ballon, occupation du terrain en 24 zones, réseau dirigé de passes probables, largeur et profondeur des joueurs visibles.
 - **Étudier une piste** : mise en évidence sur le terrain, traces des deux dernières secondes, heatmap individuelle, comparaison de deux déplacements et courbes de vitesse estimée.
+- **Associer un maillot à un ID** : galerie d’images source, lectures concordantes, candidats à vérifier, correction manuelle et export des associations par équipe.
 - **Vérifier les mesures** : temps indéterminé, couverture de calibration, ballon localisé et maillots confirmés. Export CSV des pistes/événements, JSON de la période et vidéo annotée de l'extrait complet.
 
 La bibliothèque s'ouvre sans charger PyTorch ni télécharger de modèles. Les vidéos de démonstration sont encodées en H.264 720p et pèsent environ **3,5 à 3,9 Mo** chacune, à **25 images/s**. Le rendu conserve toutes les images de la source, même lorsque l’analyse en traite une sur deux.
@@ -22,12 +23,12 @@ La bibliothèque s'ouvre sans charger PyTorch ni télécharger de modèles. Les 
 
 | Fonction | Mise en œuvre |
 | --- | --- |
-| Détection | Modèles football pour les joueurs, gardiens, arbitres et ballon |
+| Détection | Modèles football pour les joueurs, gardiens, arbitres et ballon ; suppression des boîtes presque identiques avant et après suivi |
 | Points du terrain | Modèle à 32 points ; RANSAC et suivi optique bref des repères lors d’une détection manquante |
 | Vue drone expérimentale | Petits joueurs détectés par zones, exclusion du hors-terrain, calibration par les lignes blanches |
 | Suivi individuel | ByteTrack ou BoT-SORT avec compensation du mouvement caméra et caractéristiques d'apparence, dans le mode Analyse par joueur |
-| Équipes | Couleur du torse, clustering reproductible et vote temporel ; une attribution incertaine reste inconnue |
-| Numéro de maillot | OCR optionnel, lectures répétées et contrôle des conflits |
+| Équipes | Couleur du torse, centres robustes et vote récent pondéré ; rejet des couleurs ambiguës ou éloignées |
+| Numéro de maillot | Lecteur spécialisé football facultatif, consensus sur plusieurs images, contrôle des conflits et validation visuelle |
 | Ré-identification | Rapprochement équipe + numéro ; refus de fusionner des pistes dont les périodes de visibilité se chevauchent |
 | Analyse | Trajectoires horodatées, heatmaps, distance observée, vitesse sur segments mesurables |
 | Ballon | Suivi du mouvement, contrôle confirmé sur plusieurs observations, passes probables et réseau |
@@ -38,18 +39,21 @@ La bibliothèque s'ouvre sans charger PyTorch ni télécharger de modèles. Les 
 
 ## Utiliser l'application
 
-Dans la [version en ligne](https://football-ai-x.streamlit.app/), choisir **Extraits analysés**, puis un des cinq passages de douze secondes. Ils ont été recalculés avec **BoT-SORT, OCR et les détecteurs football historiques**. Ce ne sont pas des démonstrations du candidat YOLO11 expérimental.
+Dans la [version en ligne](https://football-ai-x.streamlit.app/), choisir **Extraits analysés**, puis un des cinq passages de douze secondes. Ils ont été recalculés avec **BoT-SORT, le lecteur de maillots spécialisé ViT-S et les détecteurs football historiques**. Ce ne sont pas des démonstrations du candidat YOLO11 expérimental.
 
 Pour utiliser ta carte graphique, depuis la racine du dépôt, dans un environnement Python 3.11 avec PyTorch adapté à ton GPU :
 
 ```bash
 python -m pip install -r examples/soccer/requirements.txt
 python -m pip install -e . --no-deps
-python -m pip install easyocr
+python -m pip install -r requirements-jersey.txt
+python scripts/setup_jersey_model.py
 python -m streamlit run examples/soccer/streamlit_app.py
 ```
 
 Dans **Importer une vidéo**, choisir le début et la durée du passage. Les réglages permettent de sélectionner ByteTrack ou BoT-SORT, l'échantillonnage et l'OCR lorsqu'il est installé. Les modèles football manquants sont téléchargés uniquement au lancement de l'analyse ; BoT-SORT télécharge également son modèle d'apparence au premier usage.
+
+Le lecteur spécialisé est facultatif ; EasyOCR reste un repli possible. Les nouvelles démos contiennent **27 associations par consensus, contre 2 auparavant**, dont 9 sur le premier extrait. Ce sont des sorties à vérifier, pas un taux de précision. L’onglet **Maillots** expose les images et permet de corriger les propositions. Le quatrième extrait reste sans numéro confirmé. Voir [l’installation, la provenance et les règles de lecture](docs/JERSEY_NUMBERS.md) et [la comparaison avant/après](reports/JERSEY_IDENTITY.md). Les nouveaux imports sur Streamlit Cloud n’activent pas automatiquement ce modèle local.
 
 Le choix **Drone · terrain entier** active l'analyse par zones de 1280 pixels avec recouvrement, puis une suppression globale des doublons. Les quatre côtés du terrain et la ligne médiane doivent être visibles, avec le grand axe à l'horizontale. La géométrie est recalculée sur chaque image : en cas d'échec, les positions restent indisponibles. Ce mode conserve des IDs de suivi ; l'OCR, le ballon et les passes y sont désactivés. Il ne charge que le détecteur de joueurs.
 
@@ -124,3 +128,5 @@ Le projet est accessible à **[football-ai-x.streamlit.app](https://football-ai-
 ## Crédits
 
 Base : [Roboflow Sports](https://github.com/roboflow/sports), par Piotr Skalski / Roboflow, sous [licence MIT](LICENSE). Les bibliothèques, poids et jeux de données conservent leurs licences respectives. Les modèles Ultralytics utilisent leur propre licence ; les annotations de terrain utilisées indiquent CC BY 4.0.
+
+Lecteur de maillots externe : [Łukasz Grad, CVPRW 2025](https://github.com/lukaszgrad/uncertainty-jnr). Son fichier LICENSE indique **CC-BY-NC-SA-4.0** ; les détails et la divergence avec son README sont documentés dans [le guide](docs/JERSEY_NUMBERS.md). Ses poids ne sont pas inclus dans ce dépôt.
