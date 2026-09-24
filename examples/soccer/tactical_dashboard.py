@@ -144,6 +144,11 @@ def render_dashboard(data, video_path, clip_id):
         st.info('Cet extrait ne contient pas encore de positions horodatées. Régénérez sa démo avec scripts/build_demos.py.')
         return
     duration = float(data['duration_s'])
+    ball_available = data.get('diagnostics', {}).get('ball_events_available', True)
+    if data.get('diagnostics', {}).get('analysis_profile') == 'aerial':
+        st.info('Vue drone expérimentale : positions et déplacements des pistes visibles. '
+                f'Les distances utilisent un terrain de référence de {data["pitch"]["length"]:g} × {data["pitch"]["width"]:g} m ; ses dimensions réelles ne sont pas vérifiées. '
+                'Maillots, ballon et passes non analysés dans ce mode.')
     if data.get('diagnostics', {}).get('calibration_coverage_pct', 100) < 60:
         st.info('Le terrain est partiellement calibré sur cet extrait. Les cartes et distances ne couvrent que les instants exploitables ; la vidéo reste consultable en entier.')
     left, right = st.columns([2.1, 1])
@@ -165,6 +170,7 @@ def render_dashboard(data, video_path, clip_id):
         encoded = base64.b64encode(video).decode('ascii') if path is None else video_base64(str(path), path.stat().st_mtime_ns)
         PLAYER_COMPONENT(video_base64=encoded,
             media_id=clip_id, frames=data['frames'], events=data['events'],
+            pitch=data['pitch'], ball_available=ball_available,
             labels={str(k): label(v) for k, v in players.items()},
             numbers={str(k): v.get('jersey_number') for k, v in players.items()},
             start=start, end=end, focus=focus, key=f'replay_{clip_id}', default=None)
@@ -175,13 +181,16 @@ def render_dashboard(data, video_path, clip_id):
     cols[0].metric('Contrôle A / B', f'{known:.0f} / {100-known:.0f} %' if known is not None else 'Indéterminé',
                    help='Part du temps de contrôle attribuable. Ce n’est pas la possession officielle du match.')
     cols[1].metric('Temps indéterminé', f'{summary["unknown_pct"]:.0f} %')
-    cols[2].metric('Passes probables', summary['passes'])
+    cols[2].metric('Passes probables', summary['passes'] if ball_available else 'Non analysées')
     cols[3].metric('Terrain calibré', f'{summary["calibration_pct"]:.0f} %')
     st.caption(f'Mesures sur {start:.1f}–{end:.1f} s uniquement · ID = piste de suivi ; N° = lecture de maillot confirmée par consensus.')
     tactical, individual, events_tab, quality = st.tabs(['Tactique', 'Joueurs', 'Événements', 'Fiabilité & exports'])
     with tactical:
         st.subheader('Rythme du contrôle', divider=False)
-        chart(possession_chart(summary), f'control_{clip_id}')
+        if ball_available:
+            chart(possession_chart(summary), f'control_{clip_id}')
+        else:
+            st.caption('Contrôle et possession non analysés dans le profil drone. Les cartes ci-dessous décrivent les joueurs visibles.')
         team = st.radio('Équipe étudiée', [0, 1], format_func=lambda v: TEAM_NAMES[v], horizontal=True,
                         key=f'team_{clip_id}')
         a, b = st.columns(2)
@@ -191,8 +200,11 @@ def render_dashboard(data, video_path, clip_id):
             st.caption('Part du temps de présence cumulé dans chaque zone. Joueurs visibles et terrain calibré uniquement.')
         with b:
             st.subheader('Réseau de passes')
-            chart(network(data, summary, team), f'network_{clip_id}')
-            st.caption('Positions moyennes des pistes reliées par une passe probable. Les flèches indiquent le sens ; survolez pour le détail.')
+            if ball_available:
+                chart(network(data, summary, team), f'network_{clip_id}')
+                st.caption('Positions moyennes des pistes reliées par une passe probable. Les flèches indiquent le sens ; survolez pour le détail.')
+            else:
+                st.info('Réseau indisponible : le ballon n’est pas analysé dans ce profil. Consultez les déplacements dans l’onglet Joueurs.')
         st.subheader('Structure des joueurs visibles')
         points = structure(summary, team)
         fig = style(go.Figure(), 225)
@@ -255,14 +267,16 @@ def render_dashboard(data, video_path, clip_id):
         if visible_events:
             st.dataframe(event_table(visible_events, data), hide_index=True, **WIDTH)
         else:
-            st.info('Aucun événement de ce type sur la période sélectionnée.')
+            st.info('Aucun événement de ce type sur la période sélectionnée.' if ball_available else
+                    'Les événements de ballon ne sont pas analysés dans le profil drone.')
         st.caption('Cliquez sur une action sous la vidéo pour la revoir. Les transitions reposent sur la proximité ballon–joueur : elles ne prouvent pas une passe réussie, une interception ou une récupération.')
     with quality:
         st.subheader('Ce que l’extrait permet de mesurer')
         a, b, c = st.columns(3)
-        a.metric('Ballon localisé sur le terrain', f'{summary["ball_pct"]:.0f} %')
+        a.metric('Ballon localisé sur le terrain', f'{summary["ball_pct"]:.0f} %' if ball_available else 'Non analysé')
         b.metric('Pistes cartographiées', len(summary['players']))
-        c.metric('Maillots confirmés', sum(bool(players[p['identity_id']].get('jersey_number')) for p in summary['players']))
+        c.metric('Maillots confirmés', sum(bool(players[p['identity_id']].get('jersey_number')) for p in summary['players'])
+                 if data.get('diagnostics', {}).get('ocr_enabled', True) else 'Non analysés')
         st.write('Les calculs portent sur les joueurs dans le champ de la caméra. Les périodes sans calibration ou sans contrôle identifiable restent explicitement inconnues.')
         st.caption(f'Terrain de référence : {data["pitch"]["length"]:g} × {data["pitch"]["width"]:g} m. Dimensions réelles du stade non vérifiées. Tirs, xG, fautes et corners ne sont pas déduits de ces données.')
         with st.expander('Méthode et paramètres du calcul'):
@@ -277,6 +291,7 @@ def render_dashboard(data, video_path, clip_id):
             file_name=f'{clip_id}_{start:g}-{end:g}_evenements.csv', mime='text/csv', **WIDTH)
         export = {'schema_version': 3, 'source_video': data['source_video'],
                   'source_start_s': data.get('source_start_s', 0.), 'pitch': data['pitch'],
+                  'diagnostics': {k: v for k, v in data.get('diagnostics', {}).items() if k != 'events'},
                   'window': {'start_s': start, 'end_s': end},
                   'metrics': {k: v for k, v in summary.items() if k not in ('positions', 'frames', 'events', 'players')},
                   'players': summary['players'], 'frames': summary['frames'], 'events': summary['events']}

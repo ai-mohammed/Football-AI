@@ -6,6 +6,25 @@ from streamlit.testing.v1 import AppTest
 APP = Path(__file__).resolve().parents[1] / 'examples/soccer/streamlit_app.py'
 
 class StreamlitTests(unittest.TestCase):
+    def test_aerial_result_marks_unavailable_measurements_and_custom_dimensions(self):
+        script = f'''
+import sys
+sys.path[:0] = [{str(APP.parent)!r}, {str(APP.parents[2])!r}]
+from tactical_dashboard import render_dashboard
+data = {{'schema_version': 3, 'source_video': 'drone.mp4', 'duration_s': 1.,
+        'pitch': {{'length': 110., 'width': 72., 'unit': 'm'}}, 'players': [], 'events': [],
+        'frames': [{{'time_s': 0., 'dt': 1., 'calibrated': False, 'players': [], 'ball': None, 'possessor': None}}],
+        'diagnostics': {{'analysis_profile': 'aerial', 'ball_events_available': False, 'ocr_enabled': False}}}}
+render_dashboard(data, 'no-video.mp4', 'aerial-test')
+'''
+        app = AppTest.from_string(script, default_timeout=30).run()
+        self.assertEqual(list(app.exception), [])
+        metrics = {m.label: m.value for m in app.metric}
+        self.assertEqual(metrics['Passes probables'], 'Non analysées')
+        self.assertEqual(metrics['Ballon localisé sur le terrain'], 'Non analysé')
+        self.assertEqual(metrics['Maillots confirmés'], 'Non analysés')
+        self.assertTrue(any('110 × 72' in m.value for m in app.info))
+
     def test_demo_window_team_and_player_controls_render(self):
         app = AppTest.from_file(str(APP), default_timeout=30).run()
         self.assertEqual(list(app.exception), [])

@@ -4,10 +4,12 @@ from typing import List, Tuple
 
 @dataclass
 class SoccerPitchConfiguration:
-    width: int = 7000  # [cm]
-    length: int = 12000  # [cm]
-    penalty_box_width: int = 4100  # [cm]
-    penalty_box_length: int = 2015  # [cm]
+    # Reference dimensions, not a measurement of the filmed stadium.
+    width: int = 6800  # [cm]
+    length: int = 10500  # [cm]
+    # IFAB Law 1: 16.5 m from each post, plus the 7.32 m goal opening.
+    penalty_box_width: int = 4032  # [cm]
+    penalty_box_length: int = 1650  # [cm]
     goal_box_width: int = 1832  # [cm]
     goal_box_length: int = 550  # [cm]
     centre_circle_radius: int = 915  # [cm]

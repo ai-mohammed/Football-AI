@@ -12,7 +12,7 @@ _ID_LOCK = Lock()
 
 class FootballTracker:
     def __init__(self, backend="bytetrack", fps=25, buffer_seconds=3.0, device="cpu",
-                 reid_model="yolo11n-cls.pt"):
+                 reid_model="yolo11n-cls.pt", minimum_box_side_ratio=0.):
         if backend not in {"bytetrack", "botsort"}:
             raise ValueError("Choose bytetrack or botsort")
         from ultralytics.trackers.byte_tracker import BYTETracker
@@ -32,6 +32,7 @@ class FootballTracker:
             self.tracker = cls(args, **options)
         self.namespace = {}
         self.next_id = 1
+        self.minimum_box_side_ratio = minimum_box_side_ratio
 
     @contextmanager
     def _isolated_ids(self):
@@ -56,6 +57,17 @@ class FootballTracker:
         # Track football people only. The dedicated ball tracker is separate.
         boxes = result.boxes.cpu().numpy()
         boxes = boxes[np.isin(boxes.cls, [1, 2, 3])]
+        original_boxes = boxes.xyxy.copy()
+        if self.minimum_box_side_ratio and len(boxes):
+            # Small overhead players can move further than their box width
+            # between sampled frames. Enlarge association support only; export
+            # the original measured box, never an enlarged player detection.
+            from ultralytics.engine.results import Boxes
+            centers = (original_boxes[:, :2] + original_boxes[:, 2:]) / 2
+            half_size = np.maximum(original_boxes[:, 2:] - original_boxes[:, :2],
+                                   frame.shape[1] * self.minimum_box_side_ratio) / 2
+            padded = np.column_stack((centers-half_size, centers+half_size, boxes.conf, boxes.cls))
+            boxes = Boxes(padded.astype(np.float32), frame.shape[:2])
         with self._isolated_ids():
             tracks = self.tracker.update(boxes, frame)
         if not len(tracks):
@@ -68,5 +80,6 @@ class FootballTracker:
                 self.namespace[raw] = self.next_id
                 self.next_id += 1
             ids.append(self.namespace[raw])
-        return sv.Detections(xyxy=tracks[:, :4], confidence=tracks[:, 5],
+        output_boxes = original_boxes[tracks[:, -1].astype(int)] if self.minimum_box_side_ratio else tracks[:, :4]
+        return sv.Detections(xyxy=output_boxes, confidence=tracks[:, 5],
                              class_id=tracks[:, 6].astype(int), tracker_id=np.asarray(ids))

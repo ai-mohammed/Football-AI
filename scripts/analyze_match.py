@@ -33,6 +33,10 @@ def main():
     parser.add_argument("--stride", type=int, default=1)
     parser.add_argument("--frames", type=int, help="Limit processed frames for a smoke test")
     parser.add_argument("--imgsz", type=int, default=1280)
+    parser.add_argument("--profile", choices=["broadcast", "aerial"], default="broadcast",
+                        help="aerial: full pitch, white lines visible; tiled players, no jersey OCR or ball events")
+    parser.add_argument("--pitch-length", type=float, default=105., help="Reference pitch length in metres")
+    parser.add_argument("--pitch-width", type=float, default=68., help="Reference pitch width in metres")
     parser.add_argument("--no-ocr", action="store_true")
     parser.add_argument("--player-model", default=PLAYER_DETECTION_MODEL_PATH)
     parser.add_argument("--pitch-model", default=PITCH_DETECTION_MODEL_PATH)
@@ -46,7 +50,8 @@ def main():
         parser.error("Output already contains an analysis. Choose a new output directory.")
     analyzer = PlayerMatchAnalyzer(args.player_model, args.pitch_model, args.ball_model,
                                     device=args.device, tracker_backend=args.tracker,
-                                    enable_ocr=not args.no_ocr, imgsz=args.imgsz)
+                                    enable_ocr=not args.no_ocr, imgsz=args.imgsz, profile=args.profile,
+                                    pitch_length_m=args.pitch_length, pitch_width_m=args.pitch_width)
     info = sv.VideoInfo.from_video_path(args.video)
     export_info = sv.VideoInfo(width=info.width, height=info.height, fps=info.fps / args.stride)
     started = time.perf_counter()

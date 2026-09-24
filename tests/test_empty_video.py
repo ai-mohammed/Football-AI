@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'examples/soccer'))
 from player_analysis import PlayerMatchAnalyzer
 from sports.common.identity import MatchState
 from sports.common.ball import BallAnnotator
+from sports.configs.soccer import SoccerPitchConfiguration
 
 
 class EmptyVideoTests(unittest.TestCase):
@@ -21,6 +22,9 @@ class EmptyVideoTests(unittest.TestCase):
         analyzer = PlayerMatchAnalyzer.__new__(PlayerMatchAnalyzer)
         analyzer.device = 'cpu'
         analyzer.imgsz = 640
+        analyzer.profile = 'broadcast'
+        analyzer.tiled_detector = None
+        analyzer.config = SoccerPitchConfiguration()
         analyzer.tracker_backend = 'bytetrack'
         analyzer.reid_model = 'unused.pt'
         analyzer.enable_ocr = True  # No crops => no OCR initialization.

@@ -24,6 +24,7 @@ La bibliothèque s'ouvre sans charger PyTorch ni télécharger de modèles. Les 
 | --- | --- |
 | Détection | Modèles football pour les joueurs, gardiens, arbitres et ballon |
 | Points du terrain | Modèle à 32 points ; filtrage par confiance et calibration RANSAC |
+| Vue drone expérimentale | Petits joueurs détectés par zones, exclusion du hors-terrain, calibration par les lignes blanches |
 | Suivi individuel | ByteTrack ou BoT-SORT avec compensation du mouvement caméra et caractéristiques d'apparence, dans le mode Analyse par joueur |
 | Équipes | Couleur du torse, clustering reproductible et vote temporel ; une attribution incertaine reste inconnue |
 | Numéro de maillot | OCR optionnel, lectures répétées et contrôle des conflits |
@@ -50,6 +51,10 @@ python -m streamlit run examples/soccer/streamlit_app.py
 
 Dans **Importer une vidéo**, choisir le début et la durée du passage. Les réglages permettent de sélectionner ByteTrack ou BoT-SORT, l'échantillonnage et l'OCR lorsqu'il est installé. Les modèles football manquants sont téléchargés uniquement au lancement de l'analyse ; BoT-SORT télécharge également son modèle d'apparence au premier usage.
 
+Le choix **Drone · terrain entier** active l'analyse par zones de 1280 pixels avec recouvrement, puis une suppression globale des doublons. Les quatre côtés du terrain et la ligne médiane doivent être visibles, avec le grand axe à l'horizontale. La géométrie est recalculée sur chaque image : en cas d'échec, les positions restent indisponibles. Ce mode conserve des IDs de suivi ; l'OCR, le ballon et les passes y sont désactivés. Il ne charge que le détecteur de joueurs.
+
+Les dimensions du terrain sont réglables dans l'import et la carte reprend ces mêmes dimensions. La référence par défaut est **105 × 68 m**, avec une surface de réparation corrigée de **16,5 × 40,32 m**. Les mesures restent estimées tant que les dimensions réelles du stade ne sont pas connues. Voir [les essais de calibration et de vue drone](reports/AERIAL_CALIBRATION.md).
+
 L'interface limite les traitements à **30 secondes avec CUDA**, **8 secondes sur CPU**. Le CPU est automatiquement utilisé si aucun GPU compatible n'est présent. L'analyse complète peut prendre plusieurs minutes et n'est pas temps réel ; utiliser les démos pour une présentation fluide. Le GPU du PC n'est pas accessible automatiquement depuis l'application hébergée. Les fichiers temporaires d'import sont nettoyés après traitement ; le résultat reste dans la session Streamlit.
 
 Pour un traitement reproductible, avec les poids déjà téléchargés :
@@ -59,6 +64,14 @@ python scripts/analyze_match.py --video chemin/match.mp4 --output runs/mon-match
 ```
 
 Le dossier de sortie contient `annotated.mp4`, `preview.jpg` et `analysis.json`. Ajouter `--frames 100` pour un essai court, `--stride 2` pour échantillonner et `--no-ocr` pour désactiver la lecture des maillots.
+
+Pour une vue aérienne complète :
+
+```bash
+python scripts/analyze_match.py --video chemin/drone.mp4 --output runs/drone --profile aerial --tracker botsort --stride 3 --pitch-length 105 --pitch-width 68
+```
+
+Les dimensions de cet exemple sont une hypothèse à adapter au stade. Le profil standard `broadcast` reste sélectionné par défaut pour les plans de tribune et les vidéos télévisées.
 
 Pour reconstruire les cinq démos à partir des vidéos présentes dans `examples/soccer/notebooks` :
 
@@ -80,7 +93,7 @@ L'entraînement est reproductible pour le terrain, le ballon et les joueurs. Seu
 
 - Les « contrôles » et « passes probables » sont des estimations de proximité entre ballon et pieds. Ce ne sont pas toutes les touches physiques ni des statistiques officielles.
 - Le contrôle A/B est calculé sur le temps attribuable ; le temps inconnu est exposé séparément. Les changements de contrôle ne sont pas assimilés à des interceptions.
-- Les distances sont limitées aux segments observés, calibrés et plausibles. Le terrain de référence mesure **120 × 70 m** ; il faut adapter ses dimensions au stade pour une interprétation métrique.
+- Les distances sont limitées aux segments observés, calibrés et plausibles. Le terrain de référence mesure par défaut **105 × 68 m** ; il faut adapter ses dimensions au stade pour une interprétation métrique. Les exports enregistrent les dimensions utilisées.
 - Une vidéo télévisée ne montre pas tous les joueurs. Les occultations, ralentis, maillots similaires et coupures peuvent fragmenter les identités. La ré-identification reste imparfaite.
 - BoT-SORT utilise ici des caractéristiques d'un classifieur générique. Ce n'est pas un modèle d'identité entraîné spécifiquement sur des footballeurs.
 - La largeur/profondeur et les cartes d'occupation ne décrivent que les joueurs visibles. Elles ne prouvent ni une formation complète ni la domination d'une équipe.

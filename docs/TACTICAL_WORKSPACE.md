@@ -42,6 +42,7 @@ sont exclus de ses comptes. Aucune précision événementielle n'est revendiqué
 - `source_start_s` pour un extrait découpé depuis une vidéo importée ;
 - `pitch` : dimensions du terrain de référence, unité mètres ;
 - `frames` : `time_s`, `dt`, `calibrated`, positions de `players`, `ball`, `possessor` ;
+- champs facultatifs d'audit : `source_resolution`, `frames[].image_detections` (boîtes source en pixels), `calibration_method`, `pitch_boundary_px` ;
 - `players` : identité, pistes associées, hypothèse de maillot, trajectoire et `motion_samples` ;
 - `events` : transitions horodatées, coupures et diagnostics d'identité ;
 - `diagnostics` : méthodes utilisées, couverture et paramètres.
@@ -54,6 +55,19 @@ Un échantillon couvre `[time_s, time_s + dt)`. Un intervalle de mouvement couvr
 `[time_s - dt, time_s]`. Les durées sont coupées à l'intersection avec la fenêtre choisie,
 et la distance d'un intervalle partiellement sélectionné est pondérée par sa durée.
 Les images sans géométrie valide et les trous de données restent indéterminés.
+
+Les nouvelles analyses utilisent une référence de **105 × 68 m**, modifiable dans l'import
+ou par `--pitch-length` / `--pitch-width`. Les surfaces de réparation mesurent 16,5 × 40,32 m.
+Le lecteur SVG, les graphiques et les exports prennent les dimensions du JSON ; les anciens
+exports à 120 × 70 m restent lisibles. La couverture de calibration mesure la disponibilité
+d'une projection, pas sa précision absolue.
+
+Le profil `aerial` détecte les petits joueurs dans des zones recouvrantes, élimine les doublons
+avant le suivi et rejette les centres hors terrain lorsque ses limites sont reconnues.
+Il estime la géométrie à partir des quatre lignes extérieures et vérifie la ligne médiane.
+L'OCR et les événements de ballon sont indisponibles dans ce profil : `ball_events_available=false`.
+Le profil ne recycle jamais une ancienne géométrie lors d'un échec ; une caméra partielle,
+un terrain trop incliné dans l'image ou des lignes invisibles demandent un autre protocole.
 
 Les IDs de pistes et d'identités restent distincts. Les identités fusionnées après
 consensus équipe/maillot sont résolues dans les positions et les événements exportés.

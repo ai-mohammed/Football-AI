@@ -157,6 +157,20 @@ class GeometryTests(unittest.TestCase):
 
 
 class TrackerTests(unittest.TestCase):
+    def test_small_player_association_keeps_id_without_enlarging_exported_box(self):
+        from ultralytics.engine.results import Boxes
+        from sports.common.tracking import FootballTracker
+        tracker = FootballTracker('bytetrack', fps=10, minimum_box_side_ratio=1/64)
+        frame = np.zeros((2160, 3840, 3), dtype=np.uint8)
+        ids = []
+        for x in (100., 112., 124., 136.):
+            result = SimpleNamespace(boxes=Boxes(np.float32([[x, 100, x+10, 125, .9, 2]]), frame.shape[:2]))
+            found = tracker.update(result, frame)
+            self.assertEqual(len(found), 1)
+            np.testing.assert_allclose(found.xyxy, result.boxes.xyxy)
+            ids.append(found.tracker_id[0])
+        self.assertEqual(len(set(ids)), 1)
+
     def test_interleaved_matches_have_independent_track_counters(self):
         from ultralytics.engine.results import Boxes
         from sports.common.tracking import FootballTracker

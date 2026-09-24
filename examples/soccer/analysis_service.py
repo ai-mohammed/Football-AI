@@ -20,10 +20,12 @@ MODEL_IDS = {'player': '17PXFNlx-jI7VjVo_vQnB1sONjRyvoB-q',
 
 
 @st.cache_resource(show_spinner=False)
-def ensure_models():
+def ensure_models(profile='broadcast'):
     import os
     import gdown
     for name, value in MODEL_PATHS.items():
+        if profile == 'aerial' and name != 'player':
+            continue
         path = Path(value)
         if path.is_file():
             continue
@@ -52,12 +54,13 @@ def probe_video(video_bytes, suffix):
                 'width': info.width, 'height': info.height}
 
 
-def analyze_upload(video_bytes, filename, start, seconds, stride, tracker, enable_ocr, progress):
+def analyze_upload(video_bytes, filename, start, seconds, stride, tracker, enable_ocr, progress,
+                   profile='broadcast', pitch_length_m=105., pitch_width_m=68.):
     device = resolve_device('auto')
     limit = 30 if device.startswith('cuda') else 8
     if start < 0 or not 0 < seconds <= limit or stride < 1:
         raise ValueError(f'Choisissez un extrait de 0 à {limit} secondes et un échantillonnage positif.')
-    weights = ensure_models()
+    weights = ensure_models(profile)
     with tempfile.TemporaryDirectory(prefix='football-segment-') as directory:
         root = Path(directory)
         source = root / ('source' + Path(filename).suffix.lower())
@@ -72,7 +75,8 @@ def analyze_upload(video_bytes, filename, start, seconds, stride, tracker, enabl
             raise ValueError('Aucune image lisible à cet instant. Choisissez un autre passage.')
         analyzer = PlayerMatchAnalyzer(weights['player'], weights['pitch'], weights['ball'],
             device=device, tracker_backend=tracker, enable_ocr=enable_ocr,
-            imgsz=1280 if device.startswith('cuda') else 960)
+            imgsz=1280 if device.startswith('cuda') else 960, profile=profile,
+            pitch_length_m=pitch_length_m, pitch_width_m=pitch_width_m)
         writer = cv2.VideoWriter(str(raw), cv2.VideoWriter_fourcc(*'MJPG'), info.fps / stride,
                                 (info.width, info.height))
         if not writer.isOpened():
@@ -93,7 +97,7 @@ def analyze_upload(video_bytes, filename, start, seconds, stride, tracker, enabl
         data = analyzer.export(filename, info.fps, stride)
         data['duration_s'] = min(data['duration_s'], info.total_frames / info.fps)
         data['source_start_s'] = start
-        data['diagnostics']['models'] = {k: Path(v).name for k, v in weights.items()}
+        data['diagnostics']['models'] = {k: Path(v).name for k, v in analyzer.model_paths.items()}
         # Detach NumPy values and model state before storing a lightweight session result.
         data = json.loads(json.dumps(data, default=lambda value: value.tolist()))
         return {'data': data, 'video': final.read_bytes()}

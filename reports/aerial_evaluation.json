@@ -1,0 +1,146 @@
+{
+  "protocol": {
+    "source": "TeamTrack",
+    "license": "CC BY 4.0",
+    "source_resolution": [
+      3840,
+      2160
+    ],
+    "source_fps": 29.97,
+    "clip_seconds": 6,
+    "start_seconds": 5,
+    "stride": 3,
+    "frames_per_run": 60,
+    "aerial_tile_size": 1280,
+    "aerial_inference_size": 1280,
+    "baseline_inference_size": 2560,
+    "tracker": "botsort",
+    "ocr_enabled": false,
+    "weights": "historical football player detector; no new training",
+    "pitch_reference_m": [
+      105,
+      68
+    ],
+    "device": "NVIDIA GeForce RTX 3080",
+    "test_scope": "Three temporal excerpts of the same match, not independent matches; final excerpt not used to tune parameters"
+  },
+  "sources": {
+    "development": {
+      "dataset": "TeamTrack, early public release v2",
+      "record": "https://zenodo.org/records/8302872",
+      "project": "https://github.com/AtomScott/TeamTrack",
+      "license": "CC BY 4.0",
+      "archive": "D_Soccer_Tsukuba.zip",
+      "member": "D_Soccer_Tsukuba/videos/D_20220220_1_0060_0090.mp4",
+      "resolution": [
+        3840,
+        2160
+      ],
+      "fps": 29.97,
+      "clip_window_s": [
+        5,
+        11
+      ],
+      "note": "Drone top view; a new camera domain, not the broadcast view used in the five existing demos. Compare resolutions on this same scene only.",
+      "sha256": "33ba6f3c7df96dcc84f53f4264369fbc39d5df6b1b1b1293b9e86f87c977665e"
+    },
+    "secondary": {
+      "source": "https://zenodo.org/records/8302872",
+      "license": "CC BY 4.0",
+      "member": "D_Soccer_Tsukuba/videos/D_20220220_1_0300_0330.mp4",
+      "sha256": "123bf938aadb308f6278456c44623cbe8580c8b968dd6942a0fc17ecaf0c1db3"
+    },
+    "final": {
+      "source": "https://zenodo.org/records/8302872",
+      "license": "CC BY 4.0",
+      "member": "D_Soccer_Tsukuba/videos/D_20220220_1_0600_0630.mp4",
+      "sha256": "bef52828bcde730e1060bdb4fe16da02f0746006620c3116df2148b23381c680"
+    }
+  },
+  "results": {
+    "dev_final": {
+      "frames": 60,
+      "annotated": 1312,
+      "predicted": 894,
+      "iou_matches": 59,
+      "center_matches": 830,
+      "iou_recall_pct": 4.5,
+      "iou_precision_pct": 6.6,
+      "center_recall_pct": 63.26,
+      "center_precision_pct": 92.84,
+      "center_matches_per_frame": 13.83,
+      "mean_annotated_per_frame": 21.87,
+      "consecutive_matched_id_changes": 2,
+      "annotated_players_with_multiple_tracks": 5,
+      "matched_track_purity_pct": 100.0,
+      "calibration_pct": 100.0,
+      "identities": 28,
+      "source_frame_offset_zero_based": 150,
+      "analysis_seconds": 70.1,
+      "profile": "aerial"
+    },
+    "holdout_final": {
+      "frames": 60,
+      "annotated": 1320,
+      "predicted": 780,
+      "iou_matches": 64,
+      "center_matches": 748,
+      "iou_recall_pct": 4.85,
+      "iou_precision_pct": 8.21,
+      "center_recall_pct": 56.67,
+      "center_precision_pct": 95.9,
+      "center_matches_per_frame": 12.47,
+      "mean_annotated_per_frame": 22.0,
+      "consecutive_matched_id_changes": 0,
+      "annotated_players_with_multiple_tracks": 10,
+      "matched_track_purity_pct": 98.53,
+      "calibration_pct": 100.0,
+      "identities": 36,
+      "source_frame_offset_zero_based": 150,
+      "analysis_seconds": 66.65,
+      "profile": "aerial"
+    },
+    "unseen_final": {
+      "frames": 60,
+      "annotated": 1320,
+      "predicted": 733,
+      "iou_matches": 550,
+      "center_matches": 700,
+      "iou_recall_pct": 41.67,
+      "iou_precision_pct": 75.03,
+      "center_recall_pct": 53.03,
+      "center_precision_pct": 95.5,
+      "center_matches_per_frame": 11.67,
+      "mean_annotated_per_frame": 22.0,
+      "consecutive_matched_id_changes": 7,
+      "annotated_players_with_multiple_tracks": 10,
+      "matched_track_purity_pct": 97.14,
+      "calibration_pct": 100.0,
+      "identities": 44,
+      "source_frame_offset_zero_based": 150,
+      "analysis_seconds": 65.92,
+      "profile": "aerial"
+    },
+    "unseen_baseline": {
+      "frames": 60,
+      "annotated": 1320,
+      "predicted": 650,
+      "iou_matches": 107,
+      "center_matches": 120,
+      "iou_recall_pct": 8.11,
+      "iou_precision_pct": 16.46,
+      "center_recall_pct": 9.09,
+      "center_precision_pct": 18.46,
+      "center_matches_per_frame": 2.0,
+      "mean_annotated_per_frame": 22.0,
+      "consecutive_matched_id_changes": 0,
+      "annotated_players_with_multiple_tracks": 10,
+      "matched_track_purity_pct": 95.83,
+      "calibration_pct": 0.0,
+      "identities": 58,
+      "source_frame_offset_zero_based": 150,
+      "analysis_seconds": 57.22,
+      "profile": "broadcast"
+    }
+  }
+}

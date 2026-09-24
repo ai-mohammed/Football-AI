@@ -1,0 +1,37 @@
+[
+  {
+    "source": "08fd33_0",
+    "calibration_pct": 100.0,
+    "identities": 26,
+    "passes": 1,
+    "video_bytes": 2878914
+  },
+  {
+    "source": "0bfacc_0",
+    "calibration_pct": 100.0,
+    "identities": 27,
+    "passes": 3,
+    "video_bytes": 2595860
+  },
+  {
+    "source": "121364_0",
+    "calibration_pct": 96.0,
+    "identities": 30,
+    "passes": 1,
+    "video_bytes": 2531754
+  },
+  {
+    "source": "2e57b9_0",
+    "calibration_pct": 99.3,
+    "identities": 26,
+    "passes": 5,
+    "video_bytes": 2763125
+  },
+  {
+    "source": "573e61_0",
+    "calibration_pct": 94.7,
+    "identities": 34,
+    "passes": 3,
+    "video_bytes": 2695514
+  }
+]

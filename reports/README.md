@@ -60,19 +60,20 @@ Les vidéos annotées et JSON complets sont conservés localement sous
 `runs/football/validated-botsort` et `runs/football/validated-yolo11`.
 Les cinq démonstrations ont ensuite été régénérées pour l'atelier tactique décrit ci-dessous.
 
-## Démonstrations de l'atelier tactique
+## Démonstrations de l'atelier tactique — recalculées
 
 Chaque vidéo couvre douze secondes, avec 150 images analysées (25 images/s, pas de 2),
-BoT-SORT, OCR et les trois détecteurs football historiques. Les JSON version 3 conservent
+BoT-SORT, OCR et les trois détecteurs football historiques. La géométrie a été corrigée
+(surface de réparation 16,5 × 40,32 m, référence réglable de 105 × 68 m). Les JSON version 3 conservent
 les positions par image et les intervalles de mouvement pour permettre un filtrage temporel.
 
 | Source | Calibration acceptée | Pistes/identités finales | Passes probables |
 | --- | ---: | ---: | ---: |
-| 08fd33_0 | 98,7 % | 26 | 1 |
-| 0bfacc_0 | 81,3 % | 27 | 2 |
-| 121364_0 | 38,7 % | 30 | 1 |
-| 2e57b9_0 | 48,7 % | 26 | 2 |
-| 573e61_0 | 10,7 % | 34 | 0 |
+| 08fd33_0 | 100.0 % | 26 | 1 |
+| 0bfacc_0 | 100.0 % | 27 | 3 |
+| 121364_0 | 96.0 % | 30 | 1 |
+| 2e57b9_0 | 99.3 % | 26 | 5 |
+| 573e61_0 | 94.7 % | 34 | 3 |
 
 Ces nombres sont les sorties du pipeline, **pas des scores de précision**. Le nombre
 de pistes cumulé peut dépasser les joueurs présents à cause des pertes de suivi ;
@@ -88,6 +89,13 @@ Le service d'import a également été exécuté sur un vrai passage de la premi
 produit leur JSON et une vidéo H.264 sans exiger CUDA sur le chemin CPU. Ce dernier
 essai a pris 59,13 s, initialisation comprise : il confirme la compatibilité, pas
 une performance temps réel ou un comportement identique sur Streamlit Cloud.
+
+## Correction de calibration et vue drone
+
+La comparaison avant/après de la géométrie, les limites de précision et les tests
+sur trois passages TeamTrack 4K sont dans [le rapport dédié](AERIAL_CALIBRATION.md).
+Les essais historiques ci-dessus conservent leurs résultats d’origine ; les démos
+ci-dessus décrivent les fichiers recalculés actuellement publiés.
 
 ## Vérification logicielle
 

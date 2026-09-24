@@ -94,17 +94,29 @@ else:
                 max_value=max(.1, min(maximum, info['duration']-start)),
                 value=min(5., max(.1, min(maximum, info['duration']-start))), step=.5, key=f'duration_{fingerprint}_{start}')
             with st.expander('Réglages de l’analyse'):
+                profile = st.selectbox('Prise de vue', ['broadcast', 'aerial'],
+                    format_func=lambda p: 'Tribune / diffusion TV' if p == 'broadcast' else 'Drone · terrain entier (expérimental)')
+                if profile == 'aerial':
+                    st.caption('Les quatre côtés et la ligne médiane doivent être visibles, avec le terrain à l’horizontale. '
+                               'Analyse détaillée des petits joueurs, carte et déplacements estimés. '
+                               'Les maillots, le ballon et les passes ne sont pas analysés dans ce mode. Le traitement prend plus de temps sur CPU.')
+                field_a, field_b = st.columns(2)
+                pitch_length = field_a.number_input('Longueur du terrain (m)', min_value=90., max_value=120., value=105., step=1.)
+                pitch_width = field_b.number_input('Largeur du terrain (m)', min_value=45., max_value=90., value=68., step=1.)
+                st.caption('Dimensions de référence : renseignez celles du stade si vous les connaissez. Elles déterminent l’échelle des distances et des vitesses.')
                 tracker = st.selectbox('Suivi', ['bytetrack', 'botsort'],
                     format_func=lambda t: 'ByteTrack · rapide' if t == 'bytetrack' else 'BoT-SORT · suivi avec apparence')
                 stride = st.select_slider('Échantillonnage : une image sur', [1, 2, 3, 4, 5], value=2 if gpu else 4)
-                enable_ocr = st.checkbox('Lire les numéros de maillot', value=ocr_available(), disabled=not ocr_available())
+                enable_ocr = st.checkbox('Lire les numéros de maillot', value=ocr_available() and profile != 'aerial',
+                                        disabled=not ocr_available() or profile == 'aerial', key=f'ocr_{profile}')
                 if not ocr_available():
                     st.caption('La lecture de maillots n’est pas installée sur cet hébergement. Les pistes conservent des IDs.')
             if st.button('Analyser ce passage', type='primary'):
                 with st.status('Préparation des modèles et des équipes…', expanded=True) as status:
                     progress = st.progress(0., text='Première analyse : le téléchargement des modèles peut prendre quelques minutes.')
                     result = analyze_upload(contents, uploaded.name, start, duration, stride, tracker, enable_ocr,
-                        lambda value: progress.progress(value, text=f'Analyse des images · {value:.0%}'))
+                        lambda value: progress.progress(value, text=f'Analyse des images · {value:.0%}'), profile=profile,
+                        pitch_length_m=pitch_length, pitch_width_m=pitch_width)
                     result['id'] = f'{fingerprint}_{uuid4().hex[:8]}'
                     st.session_state['upload_result'] = result
                     status.update(label='Extrait analysé', state='complete', expanded=False)
