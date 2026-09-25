@@ -85,6 +85,26 @@ python scripts/build_demos.py --output-dir runs/mes-demos --device cuda --second
 
 La commande écrit dans un nouveau dossier pour préserver les exemples publiés. Après vérification, remplacer les fichiers de chaque extrait dans `examples/soccer/demo_data`. Le format de données et les règles de calcul sont décrits dans [le guide du tableau de bord](docs/TACTICAL_WORKSPACE.md).
 
+## Match complet, segments de 12 secondes
+
+La rubrique **Match complet** réunit les **cinq premières minutes** de la vidéo
+Barcelone–Real Madrid fournie : **25 segments de 12 secondes** dans un même
+tableau de bord. Les graphiques couvrent toute la période de 0 à 300 secondes ;
+changer de segment vidéo conserve leurs données et le filtre temporel choisi.
+Les résultats sont calculés sur le GPU local et se consultent directement sur
+[Streamlit](https://football-ai-x.streamlit.app/), sans relancer les modèles.
+
+Contrôle du ballon, heatmaps, réseau de passes, largeur/profondeur, déplacements,
+vitesses, événements et exports partagent cette chronologie. Le lecteur affiche
+la position dans le fichier complet. Deux secondes de contexte
+peuvent précéder l'analyse d'un segment pour conserver les actions aux limites,
+sans doubler les mesures. Les couleurs A/B partagent une référence commune ; les
+IDs restent propres à chaque segment. Les ralentis ne sont pas exclus : le cumul
+des segments ne constitue pas une statistique officielle du match.
+
+Voir le [guide du match complet](docs/FULL_MATCH.md) pour le découpage, la reprise
+du calcul et la publication des résultats.
+
 ## Continuité des actions
 
 La première passe de l’extrait 1 est désormais détectée : **ID22 → ID3, de 0,48 à 2,32 s**. Le passeur reste mémorisé pendant un trajet de ballon observé, même lorsqu’il dure plus d’une seconde. Les alternances isolées entre voisins ne suffisent plus à produire une passe.

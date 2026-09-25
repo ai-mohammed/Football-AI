@@ -2,6 +2,7 @@
 import base64
 import pandas as pd
 import streamlit as st
+from sports.common.matches import video_time
 
 from sports.common.roster import apply_numbers, registry
 from sports.common.segments import TEAM_NAMES, label
@@ -18,7 +19,8 @@ def render_jersey_review(data, original, key, width_options):
         st.info('Aucune piste à identifier sur cet extrait.')
         return
     rows = registry(data)
-    st.dataframe(pd.DataFrame([{'ID': p['identity_id'], 'Pistes liées': ', '.join(map(str, p['tracker_ids'])),
+    st.dataframe(pd.DataFrame([{'ID': label(people[p['identity_id']]) if data.get('aggregate') else p['identity_id'],
+                               'Pistes liées': ', '.join(map(str, p['tracker_ids'])),
                                'Équipe': TEAM_NAMES.get(p['team_id'], 'Non attribuée'),
                                'Maillot': p['jersey_number'] or '—', 'Statut': STATUS[p['status']]}
                               for p in rows]), hide_index=True, **width_options)
@@ -33,7 +35,9 @@ def render_jersey_review(data, original, key, width_options):
             with column:
                 st.image(base64.b64decode(sample['image_base64']), width=120)
                 number = sample.get('number')
-                st.caption(f'{sample["time_s"]:.2f} s · {sample["native_resolution"][0]} × {sample["native_resolution"][1]} px')
+                when = (f'Vidéo {video_time(sample["source_time_s"])}' if 'source_time_s' in sample else f'{sample["time_s"]:.2f} s')
+                when += ' · contexte avant segment' if sample.get('in_context') else ''
+                st.caption(f'{when} · {sample["native_resolution"][0]} × {sample["native_resolution"][1]} px')
                 st.caption(f'Hypothèse : {number or "non lu"} · score du modèle {sample["confidence"]:.0%}')
         st.caption('Le score exprime la confiance du modèle sur cette image ; ce n’est pas une garantie de lecture correcte.')
     else:
@@ -57,7 +61,8 @@ def render_jersey_review(data, original, key, width_options):
         st.session_state[key] = {k: v for k, v in st.session_state[key].items() if k != str(selected)}
         st.rerun()
     st.caption('Les validations restent dans cette session et apparaissent sur la carte, dans les tableaux et dans les exports. Les incrustations vidéo correspondent au calcul initial.')
-    flat = [{'ID': p['identity_id'], 'Pistes': ','.join(map(str, p['tracker_ids'])),
+    flat = [{'ID': label(people[p['identity_id']]) if data.get('aggregate') else p['identity_id'],
+             'Pistes': ','.join(map(str, p['tracker_ids'])),
              'Équipe': TEAM_NAMES.get(p['team_id'], 'Non attribuée'), 'Maillot': p['jersey_number'],
              'Statut': STATUS[p['status']]} for p in rows]
     st.download_button('Associations ID–maillot · CSV', pd.DataFrame(flat).to_csv(index=False).encode('utf-8-sig'),

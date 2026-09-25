@@ -75,6 +75,17 @@ class DetectorTests(unittest.TestCase):
         classifier.fit(crops)
         self.assertEqual(classifier.predict([np.full((80, 30, 3), (200, 40, 40), np.uint8)])[0], 2)
 
+    def test_rare_referee_colour_does_not_merge_dark_and_white_teams(self):
+        dark = np.full((80, 30, 3), (70, 35, 60), np.uint8)
+        white = np.full((80, 30, 3), (230, 230, 230), np.uint8)
+        yellow = np.full((80, 30, 3), (10, 245, 245), np.uint8)
+        classifier = TeamClassifier()
+        classifier.fit([dark]*60+[white]*60+[yellow]*10, allow_role_outliers=True)
+        labels = classifier.predict([dark, white, yellow])
+        self.assertEqual(set(labels[:2]), {0, 1})
+        self.assertEqual(labels[2], 2)
+        self.assertEqual(classifier.excluded_role_crops, 10)
+
 
 class RegistryTests(unittest.TestCase):
     def data(self):

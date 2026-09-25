@@ -15,4 +15,11 @@ function displayPositions(frames, index, time, events) {
     return {...p, xy: p.xy.map((v, i) => v + alpha * (q.xy[i] - v))};
   });
 }
-if (typeof module !== 'undefined') module.exports = {displayPositions};
+function sourceClock(seconds) {
+  const whole=Math.max(0,Math.floor(seconds));
+  return [Math.floor(whole/3600),Math.floor(whole/60)%60,whole%60].map(n=>String(n).padStart(2,'0')).join(':');
+}
+function eventInWindow(event,start,end) {
+  return event.time_s>=start&&event.time_s<end&&((event.start_s??event.time_s)>=start||(event.origin_in_context&&start===0));
+}
+if (typeof module !== 'undefined') module.exports = {displayPositions, sourceClock, eventInWindow};

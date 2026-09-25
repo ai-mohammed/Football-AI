@@ -18,6 +18,9 @@ def overlap(a, b, start, end):
 
 def label(player):
     number = player.get('jersey_number')
+    if 'local_identity_id' in player:
+        local = f"{player['segment_id'].upper()} · ID{player['local_identity_id']}"
+        return f"N° {number} · {local}" if number else local
     return f"N° {number} · ID{player['identity_id']}" if number else f"ID{player['identity_id']}"
 
 
@@ -34,7 +37,8 @@ def window_frames(data, start, end):
 def window_events(data, start, end):
     return [e for e in data.get('events', []) if e.get('type') in EVENT_NAMES
             and start <= e.get('time_s', -1) < end
-            and e.get('start_s', e.get('time_s', -1)) >= start]
+            and (e.get('start_s', e.get('time_s', -1)) >= start
+                 or (e.get('origin_in_context') and start == 0))]
 
 
 def summarize(data, start=0., end=None):

@@ -104,27 +104,38 @@ class PlayerMatchAnalyzer:
             self._ocr_reader = easyocr.Reader(["en"], gpu=self.device.startswith("cuda"), verbose=False)
         return self._ocr_reader
 
-    def process(self, source_video_path, stride=1, max_frames=None) -> Iterator[np.ndarray]:
+    def reset_segment(self):
+        """Reuse loaded models while keeping segment identities independent."""
+        self.state = MatchState(self.config.length, self.config.width)
+        self.samples, self.jersey_previews = [], {}
+        self.ball_annotator = BallAnnotator(radius=6, buffer_size=10)
+
+    def process(self, source_video_path, stride=1, max_frames=None, start_frame=0,
+                end_frame=None, team_classifier=None) -> Iterator[np.ndarray]:
         if stride < 1:
             raise ValueError("stride must be >= 1")
         info = sv.VideoInfo.from_video_path(source_video_path)
+        end_frame = min(info.total_frames, end_frame if end_frame is not None else info.total_frames)
+        if not 0 <= start_frame < end_frame:
+            raise ValueError('Intervalle vidéo vide ou invalide.')
         self.source_resolution = [info.width, info.height]
         fps = info.fps or 25
         dt = stride / fps
         self.seconds_per_processed_frame = dt
         # Bound warm-up work even for full-length matches.
         crops = []
-        sampling_stride = max(60, info.total_frames // 24)
-        for index, frame in enumerate(sv.get_video_frames_generator(source_video_path, stride=sampling_stride)):
-            boundary = full_pitch_boundary(frame) if self.profile == "aerial" else None
-            result = self._detect_people(frame, boundary, conf=.25)
-            detections = sv.Detections.from_ultralytics(result)
-            crops.extend(c for c in get_crops(frame, detections[detections.class_id == 2]) if c.size)
-            if len(crops) >= 320 or index >= 23:
-                break
-        team_classifier = TeamClassifier(device=self.device) if len(crops) >= 2 else None
-        if team_classifier:
-            team_classifier.fit(crops[:320])
+        if team_classifier is None:
+            sampling_stride = max(60, (end_frame-start_frame) // 24)
+            for index, frame in enumerate(sv.get_video_frames_generator(source_video_path, stride=sampling_stride, start=start_frame, end=end_frame)):
+                boundary = full_pitch_boundary(frame) if self.profile == "aerial" else None
+                result = self._detect_people(frame, boundary, conf=.25)
+                detections = sv.Detections.from_ultralytics(result)
+                crops.extend(c for c in get_crops(frame, detections[detections.class_id == 2]) if c.size)
+                if len(crops) >= 320 or index >= 23:
+                    break
+            team_classifier = TeamClassifier(device=self.device) if len(crops) >= 2 else None
+            if team_classifier:
+                team_classifier.fit(crops[:320])
         tracker = FootballTracker(self.tracker_backend, fps=fps / stride,
                                   device=self.device, reid_model=self.reid_model,
                                   minimum_box_side_ratio=1/64 if self.profile == 'aerial' else 0.)
@@ -139,7 +150,7 @@ class PlayerMatchAnalyzer:
 
         ball_slicer = sv.InferenceSlicer(callback=ball_callback, overlap_filter=sv.OverlapFilter.NONE,
                                          slice_wh=(640, 640), thread_workers=1)
-        for index, frame in enumerate(sv.get_video_frames_generator(source_video_path, stride=stride)):
+        for index, frame in enumerate(sv.get_video_frames_generator(source_video_path, stride=stride, start=start_frame, end=end_frame)):
             if max_frames is not None and index >= max_frames:
                 break
             timestamp = index * dt

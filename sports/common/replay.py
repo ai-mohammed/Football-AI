@@ -57,7 +57,7 @@ def add_display_positions(data):
     return data
 
 
-def render_replay(source, data, destination, preview=None, max_width=1280):
+def render_replay(source, data, destination, preview=None, max_width=1280, source_start_frame=0):
     """Keep every source frame; inference stride never determines playback FPS."""
     import cv2
     import imageio_ffmpeg
@@ -70,6 +70,8 @@ def render_replay(source, data, destination, preview=None, max_width=1280):
     if not cap.isOpened() or fps <= 0:
         cap.release()
         raise ValueError('Vidéo source illisible pour le rendu.')
+    if source_start_frame:
+        cap.set(cv2.CAP_PROP_POS_FRAMES, int(source_start_frame))
     scale = min(1., max_width/cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     size = (int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)*scale)//2*2,
             int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)*scale)//2*2)

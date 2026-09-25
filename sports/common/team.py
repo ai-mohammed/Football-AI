@@ -118,7 +118,7 @@ class TeamClassifier:
 
         return np.concatenate(data)
 
-    def fit(self, crops: List[np.ndarray]) -> None:
+    def fit(self, crops: List[np.ndarray], allow_role_outliers: bool = False) -> None:
         """
         Fit the classifier model on a list of image crops.
 
@@ -136,6 +136,21 @@ class TeamClassifier:
             projections = self.reducer.fit_transform(data)
         if len(np.unique(projections, axis=0)) < 2:
             return
+        self.excluded_role_crops = 0
+        if self.method == 'jersey' and allow_role_outliers and len(projections) >= 24:
+            # A referee misdetected as a player can be more chromatically distinct
+            # than the two kits. Discard only a small, distant third mode; never
+            # assign this mode to either team or infer a verified referee label.
+            modes = KMeans(n_clusters=3, random_state=42, n_init=10).fit(projections)
+            counts = np.bincount(modes.labels_, minlength=3)
+            a, b, rare = np.argsort(counts)[::-1]
+            centers = modes.cluster_centers_
+            kit_gap = np.linalg.norm(centers[a]-centers[b])
+            rare_gap = min(np.linalg.norm(centers[rare]-centers[k]) for k in (a, b))
+            if (counts[rare] <= .15*len(projections) and counts[b] >= .2*len(projections)
+                    and kit_gap >= .04 and rare_gap > 1.4*kit_gap):
+                self.excluded_role_crops = int(counts[rare])
+                projections = projections[modes.labels_ != rare]
         self.cluster_model.fit(projections)
         if len(np.unique(self.cluster_model.labels_)) < 2:
             return

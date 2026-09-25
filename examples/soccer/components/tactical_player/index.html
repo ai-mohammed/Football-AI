@@ -16,6 +16,7 @@
   <input id="scrub" class="scrub" type="range" min="0" max="12" value="0" step="0.04" aria-label="Position dans l’extrait">
   <div class="toolbar"><button id="play" type="button">Lire</button><button id="back" type="button" aria-label="Image précédente">− image</button><button id="forward" type="button" aria-label="Image suivante">+ image</button><output id="clock" aria-label="Temps vidéo">0.00 s</output><select id="speed" aria-label="Vitesse de lecture"><option value="0.5">× 0,5</option><option value="1" selected>× 1</option><option value="2">× 2</option></select></div>
   <div id="error" role="status"></div>
+  <div class="status" id="source-clock" aria-label="Horloge du fichier source"></div>
  </section>
  <section aria-label="Terrain synchronisé">
   <div class="label"><strong>Positions sur le terrain</strong><label class="muted"><input id="trails" type="checkbox" checked> Traces 2 s</label></div>
@@ -57,6 +58,7 @@ function draw(force=false){
  if(video.readyState>=1&&video.currentTime<args.start-.001)video.currentTime=args.start;
  if(video.currentTime>=args.end){video.pause();if(video.currentTime>args.end+.04)video.currentTime=args.end}
  const t=video.currentTime;el('clock').textContent=t.toFixed(2)+' s';scrub.value=t;
+ el('source-clock').textContent=args.show_source_clock?'Fichier vidéo · '+sourceClock((args.source_start_s||0)+t)+' · segment '+t.toFixed(2)+' s':'';
  let lo=0,hi=args.frames.length-1,idx=-1;
  while(lo<=hi){const m=(lo+hi)>>1;if(args.frames[m].time_s<=t+.001){idx=m;lo=m+1}else hi=m-1}
  frameIndex=idx;
@@ -84,7 +86,7 @@ function draw(force=false){
   shape('circle',{cx:p.xy[0],cy:p.xy[1],r:focus===p.identity_id?1.35:1,fill:p.interpolated?'none':color,stroke:p.interpolated?color:frame.possessor===p.identity_id?'#fff':'#0e1117','stroke-width':.4,'stroke-dasharray':p.interpolated?'.7 .4':'none'},g);
   const name=args.labels[p.identity_id]||('ID'+p.identity_id);
   shape('title',{},g).textContent=name+' · '+p.xy.map(v=>v.toFixed(1)).join(', ')+' m'+(p.interpolated?' · position interpolée':'');
-  if(selected)shape('text',{x:p.xy[0],y:p.xy[1]-1.9,'text-anchor':'middle',fill:'#e6edf3','font-size':2.4,'paint-order':'stroke',stroke:'#122a25','stroke-width':.6},g).textContent=args.numbers[p.identity_id]?'#'+args.numbers[p.identity_id]:'ID'+p.identity_id;
+  if(selected)shape('text',{x:p.xy[0],y:p.xy[1]-1.9,'text-anchor':'middle',fill:'#e6edf3','font-size':2.4,'paint-order':'stroke',stroke:'#122a25','stroke-width':.6},g).textContent=args.numbers[p.identity_id]?'#'+args.numbers[p.identity_id]:(args.short_labels?.[p.identity_id]||'ID'+p.identity_id);
  }
  if(frame.ball){shape('circle',{cx:frame.ball[0],cy:frame.ball[1],r:.75,fill:'#fff',stroke:'#111','stroke-width':.25},el('ball'))}
  const estimated=display.filter(p=>p.interpolated).length;
@@ -100,7 +102,7 @@ function render(next){
  }else if(video.currentTime<args.start||video.currentTime>=args.end){seek(args.start)}
  el('events').replaceChildren();
  const names={probable_pass:'Passe probable',control_change:'Contrôle changé',camera_cut:'Coupure caméra'};
- const events=args.events.filter(e=>e.time_s>=args.start&&e.time_s<args.end&&(e.start_s??e.time_s)>=args.start&&names[e.type]);
+ const events=args.events.filter(e=>eventInWindow(e,args.start,args.end)&&names[e.type]);
  for(const event of events){const button=document.createElement('button');button.type='button';const time=document.createElement('span');time.className='event-time';time.textContent=event.time_s.toFixed(1)+' s';button.append(time);button.append(document.createTextNode(names[event.type]+(event.from!==undefined?` · ${args.labels[event.from]||'ID'+event.from} → ${args.labels[event.to]||'ID'+event.to}`:'')));button.title='Revoir l’action depuis son départ';button.onclick=()=>{video.pause();seek(Math.max(args.start,(event.start_s??event.time_s)-.25))};el('events').appendChild(button)}
  if(!events.length){const text=document.createElement('span');text.className='empty';text.textContent=args.ball_available===false?'Événements de ballon non analysés pour cette vue. Explorez les déplacements avec le curseur vidéo.':'Aucune transition détectée sur cette période. Explorez avec le curseur vidéo.';el('events').appendChild(text)}
  draw(true);height();

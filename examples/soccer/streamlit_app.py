@@ -41,7 +41,7 @@ demos = [p for p in sorted(DEMO_DIR.iterdir()) if p.is_dir() and (p / 'analysis.
 with st.sidebar:
     st.title('Football AI')
     st.caption('L’espace d’analyse de vos extraits')
-    page = st.radio('Espace de travail', ['Extraits analysés', 'Importer une vidéo'], label_visibility='collapsed')
+    page = st.radio('Espace de travail', ['Extraits analysés', 'Match complet', 'Importer une vidéo'], label_visibility='collapsed')
     st.divider()
     if page == 'Extraits analysés' and demos:
         selected = st.selectbox('Bibliothèque', demos, format_func=lambda p: CLIPS.get(p.name, p.name), key='demo')
@@ -66,6 +66,9 @@ if page == 'Extraits analysés':
     else:
         st.caption(f'{CLIPS.get(selected.name, selected.name)} · {data["duration_s"]:g} s · Vidéo, positions et actions au même instant')
         render_dashboard(data, selected / 'annotated.mp4', selected.name)
+elif page == 'Match complet':
+    from match_library import render_match_library
+    render_match_library()
 else:
     st.title('Analyser un extrait')
     st.write('Importez votre vidéo, choisissez un court passage, puis explorez le même tableau de bord.')

@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pandas as pd
 import plotly.graph_objects as go
+from plotly.colors import sample_colorscale
 import streamlit as st
 import streamlit.components.v1 as components
 
@@ -69,12 +70,24 @@ def heatmap(data, summary, team, identity=None):
     length, width = data['pitch']['length'], data['pitch']['width']
     grid = occupancy(summary, team, length, width, identity=identity)
     fig = pitch(data)
-    fig.add_trace(go.Heatmap(x=[(i + .5) * length / 6 for i in range(6)],
-        y=[(i + .5) * width / 4 for i in range(4)], z=grid, zmin=0,
-        colorscale=[[0, '#122A25'], [.5, '#267653'], [1, '#86E6A9']], showscale=False,
-        text=[[f'{v:.0f}%' if v >= .5 else '' for v in row] for row in grid],
-        texttemplate='%{text}', textfont=dict(color='#FFFFFF', size=13),
+    scale = [[0, '#122A25'], [.5, '#267653'], [1, '#86E6A9']]
+    maximum = max(max(map(max, grid)), 1e-9)
+    xs, ys = [(i+.5)*length/6 for i in range(6)], [(i+.5)*width/4 for i in range(4)]
+    fig.add_trace(go.Heatmap(x=xs, y=ys, z=grid, zmin=0, zmax=maximum,
+        colorscale=scale, showscale=False,
         hovertemplate='Zone · %{z:.1f}% du temps de présence cumulé<extra></extra>'))
+    for row, y in zip(grid, ys):
+        for value, x in zip(row, xs):
+            if value < .5:
+                continue
+            rgb = sample_colorscale(scale, [value/maximum])[0]
+            channels = [float(c)/255 for c in rgb[4:-1].split(',')]
+            linear = [c/12.92 if c <= .04045 else ((c+.055)/1.055)**2.4 for c in channels]
+            luminance = sum(a*b for a,b in zip(linear, (.2126,.7152,.0722)))
+            # Black or white guarantees >=4.5:1 throughout this continuous scale.
+            color = '#000000' if luminance > .179 else '#FFFFFF'
+            fig.add_annotation(x=x, y=y, text=f'{value:.0f}%', showarrow=False,
+                               font=dict(color=color, size=13))
     return fig
 
 
@@ -93,7 +106,8 @@ def network(data, summary, team):
             arrowwidth=1.5, arrowcolor=COLORS[team], standoff=12, text='')
     if nodes:
         fig.add_trace(go.Scatter(x=[p[0] for p in nodes.values()], y=[p[1] for p in nodes.values()],
-            mode='markers+text', text=[names[i] for i in nodes], textposition='top center',
+            mode='markers+text' if len(nodes) <= 18 else 'markers',
+            text=[names[i] for i in nodes], textposition='top center',
             marker=dict(size=14, color=COLORS[team], line=dict(color='#E6EDF3', width=1)),
             hovertemplate='%{text}<extra></extra>'))
     else:
@@ -102,7 +116,7 @@ def network(data, summary, team):
     return fig
 
 
-def possession_chart(summary):
+def possession_chart(summary, time_label='Temps dans l’extrait (s)'):
     fig = style(go.Figure(), 128)
     runs = []
     for frame in summary['frames']:
@@ -123,7 +137,7 @@ def possession_chart(summary):
             marker_color=COLORS[team], customdata=[[r[1], r[2]] for r in selected],
             hovertemplate='%{customdata[0]:.2f} – %{customdata[1]:.2f} s<extra>%{fullData.name}</extra>'))
     fig.update_layout(barmode='overlay', bargap=.4, margin=dict(l=0, r=8, t=24, b=30))
-    fig.update_xaxes(range=[summary['start_s'], summary['end_s']], title='Temps dans l’extrait (s)')
+    fig.update_xaxes(range=[summary['start_s'], summary['end_s']], title=time_label)
     fig.update_yaxes(visible=False)
     return fig
 
@@ -141,7 +155,7 @@ def event_table(events, data):
         columns=['Temps (s)', 'Événement', 'Origine', 'Destination', 'Équipe à réception'])
 
 
-def render_dashboard(data, video_path, clip_id):
+def render_dashboard(data, video_path, clip_id, playback=None):
     if data.get('schema_version') != 3 or not data.get('frames'):
         st.info('Cet extrait ne contient pas encore de positions horodatées. Régénérez sa démo avec scripts/build_demos.py.')
         return
@@ -173,13 +187,23 @@ def render_dashboard(data, video_path, clip_id):
     video = video_path if path is None else path.read_bytes() if path.is_file() else None
     if video:
         encoded = base64.b64encode(video).decode('ascii') if path is None else video_base64(str(path), path.stat().st_mtime_ns)
+        shown = playback if playback is not None else data
+        media_id = f'{clip_id}:{shown.get("segment_id", "")}'
+        if playback is not None:
+            offset = shown['source_start_s']
+            st.caption(f'Vidéo : {offset:.0f}–{offset+shown["duration_s"]:.0f} s du fichier. '
+                       f'Graphiques : {start:.0f}–{end:.0f} s, tous les segments de cette période réunis.')
         PLAYER_COMPONENT(video_base64=encoded,
-            media_id=f'{clip_id}:{path.stat().st_mtime_ns}' if path is not None else clip_id,
-            frames=data['frames'], events=data['events'], source_fps=data.get('source_fps', 25),
+            media_id=f'{media_id}:{path.stat().st_mtime_ns}' if path is not None else media_id,
+            frames=shown['frames'], events=shown['events'], source_fps=shown.get('source_fps', 25),
+            source_start_s=shown.get('source_start_s', 0.), show_source_clock='source_start_s' in shown,
             pitch=data['pitch'], ball_available=ball_available,
             labels={str(k): label(v) for k, v in players.items()},
+            short_labels={str(k): f'ID{v.get("local_identity_id", k)}' for k, v in players.items()},
             numbers={str(k): v.get('jersey_number') for k, v in players.items()},
-            start=start, end=end, focus=focus, key=f'replay_{clip_id}', default=None)
+            start=0. if playback is not None else start,
+            end=shown['duration_s'] if playback is not None else end,
+            focus=focus, key=f'replay_{clip_id}', default=None)
     else:
         st.warning('La vidéo annotée est indisponible. Les mesures restent consultables ci-dessous.')
     cols = st.columns(4)
@@ -190,11 +214,15 @@ def render_dashboard(data, video_path, clip_id):
     cols[2].metric('Passes probables', summary['passes'] if ball_available else 'Non analysées')
     cols[3].metric('Terrain calibré', f'{summary["calibration_pct"]:.0f} %')
     st.caption(f'Mesures sur {start:.1f}–{end:.1f} s uniquement · ID = piste de suivi ; N° = consensus de lectures ou validation dans Maillots.')
+    if data.get('aggregate'):
+        st.caption('Vue cumulée : chaque piste garde son segment (S001, S002…). Les mêmes numéros ou IDs '
+                   'dans deux segments ne sont pas fusionnés automatiquement. Les épisodes de contrôle restent bornés par segment.')
     tactical, individual, jerseys, events_tab, quality = st.tabs(['Tactique', 'Joueurs', 'Maillots', 'Événements', 'Fiabilité & exports'])
     with tactical:
         st.subheader('Rythme du contrôle', divider=False)
         if ball_available:
-            chart(possession_chart(summary), f'control_{clip_id}')
+            chart(possession_chart(summary, 'Temps dans la vidéo analysée (s)' if data.get('aggregate')
+                                   else 'Temps dans l’extrait (s)'), f'control_{clip_id}')
         else:
             st.caption('Contrôle et possession non analysés dans le profil drone. Les cartes ci-dessous décrivent les joueurs visibles.')
         team = st.radio('Équipe étudiée', [0, 1], format_func=lambda v: TEAM_NAMES[v], horizontal=True,
@@ -282,8 +310,9 @@ def render_dashboard(data, video_path, clip_id):
         st.subheader('Ce que l’extrait permet de mesurer')
         a, b, c = st.columns(3)
         a.metric('Ballon localisé sur le terrain', f'{summary["ball_pct"]:.0f} %' if ball_available else 'Non analysé')
-        b.metric('Pistes cartographiées', len(summary['players']))
-        c.metric('Maillots confirmés', sum(bool(players[p['identity_id']].get('jersey_number')) for p in summary['players'])
+        b.metric('Pistes cumulées par segment' if data.get('aggregate') else 'Pistes cartographiées', len(summary['players']))
+        c.metric('Pistes avec lecture de maillot' if data.get('aggregate') else 'Maillots confirmés',
+                 sum(bool(players[p['identity_id']].get('jersey_number')) for p in summary['players'])
                  if data.get('diagnostics', {}).get('ocr_enabled', True) or st.session_state.get(review_key) else 'Non analysés')
         st.write('Les calculs portent sur les joueurs dans le champ de la caméra. Les périodes sans calibration ou sans contrôle identifiable restent explicitement inconnues.')
         st.caption(f'Terrain de référence : {data["pitch"]["length"]:g} × {data["pitch"]["width"]:g} m. Dimensions réelles du stade non vérifiées. Tirs, xG, fautes et corners ne sont pas déduits de ces données.')
