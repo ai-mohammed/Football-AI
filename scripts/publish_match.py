@@ -79,6 +79,9 @@ class MatchPublisher:
         public = copy.deepcopy(manifest)
         if public.get('overview'):
             public['overview'].pop('local_path', None)
+        if public.get('continuous'):
+            for descriptor in ('analysis', 'video'):
+                public['continuous'][descriptor].pop('local_path', None)
         for segment in public['segments']:
             segment.pop('analysis_path', None); segment.pop('video_path', None)
             if segment['status'] == 'ready' and not segment.get('bundle_url'):
@@ -91,6 +94,13 @@ class MatchPublisher:
         digest = hashlib.sha256(content).hexdigest()
         name = f'overview-{digest[:12]}.json.gz'
         asset = self.assets.get(name) or self._upload(name, content, 'application/gzip')
+        return {'url': asset['browser_download_url'], 'sha256': digest, 'bytes': len(content)}
+
+    def continuous_video(self, path):
+        content = path.read_bytes()
+        digest = hashlib.sha256(content).hexdigest()
+        name = f'continuous-{digest[:12]}.mp4'
+        asset = self.assets.get(name) or self._upload(name, content, 'video/mp4')
         return {'url': asset['browser_download_url'], 'sha256': digest, 'bytes': len(content)}
 
 

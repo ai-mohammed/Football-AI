@@ -78,6 +78,40 @@ def load_overview(location, sha256=None, modified=None):
     return data
 
 
+def render_continuous(data, root, match_id):
+    """One media source and one analysis; chapters are handled inside the player."""
+    record = data['continuous']
+    descriptor = record['analysis']
+    if descriptor.get('url'):
+        analysis = load_overview(descriptor['url'], descriptor['sha256'])
+    else:
+        source = root/descriptor['local_path']
+        analysis = load_overview(str(source), modified=source.stat().st_mtime_ns)
+    if analysis.get('identity_scope') != 'continuous':
+        raise ValueError('Le suivi continu est absent de cette analyse.')
+    media = record['video']
+    if media.get('url'):
+        if not media['url'].startswith(REMOTE_PREFIX) or not media['url'].endswith('.mp4'):
+            raise ValueError('Adresse de vidéo non reconnue.')
+        video = {'url': media['url']}
+    else:
+        video = root/media['local_path']
+        if not video.is_file():
+            raise FileNotFoundError(video)
+    st.caption('Une vidéo continue, une carte synchronisée et les graphiques de toute la période. '
+               'Les repères sous le lecteur permettent de revenir à un moment précis sans changer de vidéo.')
+    render_dashboard(analysis, video, f'{match_id}_continuous_{descriptor.get("sha256", "local")[:12]}')
+
+
+def segment_export(segments, match_id):
+    with st.expander('Repères temporels et export'):
+        table = pd.DataFrame([{'Repère': s['index'], 'Début vidéo': video_time(s['start_s']),
+            'Fin vidéo': video_time(s['end_s']), 'Durée (s)': s['duration_s']} for s in segments])
+        st.dataframe(table, hide_index=True, **WIDTH)
+        st.download_button('Repères · CSV', table.to_csv(index=False).encode('utf-8-sig'),
+                           file_name=f'{match_id}_reperes.csv', mime='text/csv')
+
+
 def render_match_library():
     st.title('Analyse du match')
     paths = catalog()
@@ -99,26 +133,52 @@ def render_match_library():
     segments = data['segments']
     ready = sum(s['status'] == 'ready' for s in segments)
     window = data.get('analysis_window')
+    continuous = bool(data.get('continuous'))
     if window:
         st.caption(f'Période analysée : {video_time(window["start_s"])} → {video_time(window["end_s"])} · '
-                   f'{len(segments)} segments de 12 secondes maximum · fichier source : {video_time(data["source"]["duration_s"])}')
+                   f'{len(segments)} repères de 12 secondes · fichier source : {video_time(data["source"]["duration_s"])}')
     else:
         st.caption(f'{video_time(data["source"]["duration_s"])} de vidéo · {len(segments)} segments · 12 secondes maximum par segment')
-    st.progress(ready/len(segments), text=f'{ready} / {len(segments)} segments analysés')
-    if st.button('Actualiser la progression'):
+    if not continuous:
+        st.progress(ready/len(segments), text=f'{ready} / {len(segments)} segments analysés')
+    if not continuous and st.button('Actualiser la progression'):
         remote_manifest.clear()
         st.rerun()
     if data.get('status') == 'running':
         st.caption('Le GPU du PC traite la file. Les résultats sont enregistrés et publiés au fur et à mesure. Le PC doit rester allumé.')
-    with st.expander('Découpage, horaires et limites'):
-        st.write('La période analysée est découpée sans trou ni recouvrement : 00:00–00:12, 00:12–00:24, puis la suite. '
+    with st.expander('Horaires et limites de l’analyse'):
+        if continuous:
+            st.write('Les cinq minutes sont lues et analysées d’un seul tenant. Les repères de 12 secondes servent '
+                     'à naviguer ; ils ne coupent ni la vidéo ni le suivi. Les changements de caméra déjà présents '
+                     'dans le fichier sont conservés. Les cartes sont indisponibles lorsque le terrain ne peut pas être calibré.')
+        else:
+            st.write('Les résultats historiques ci-dessous ont été calculés séparément par segments de 12 secondes.')
+        if not continuous:
+            st.write('La période analysée est découpée sans trou ni recouvrement : 00:00–00:12, 00:12–00:24, puis la suite. '
                  f'Le dernier segment dure {segments[-1]["duration_s"]:.2f} s. Deux secondes en amont peuvent être analysées '
                  'pour retrouver le début d’une action ; elles ne rallongent pas le segment affiché et ne sont pas comptées deux fois.')
         st.write('Les horaires indiquent la position dans le fichier vidéo. Ils ne correspondent pas nécessairement au chronomètre du match. '
                  'La vidéo contient aussi des ralentis, gros plans, pauses et célébrations. Ces séquences ne sont pas exclues automatiquement : '
                  'additionner les événements de tous les segments ne donne pas les statistiques officielles du match.')
-        st.write('Les couleurs A/B utilisent une référence commune au fichier. Les IDs sont propres à chaque segment : '
+        if continuous:
+            st.write('Les couleurs A/B et le suivi sont communs aux cinq minutes. Les IDs ne sont pas des numéros de maillot. '
+                     'Une disparition prolongée peut créer une nouvelle piste ; les numéros automatiques restent à vérifier.')
+        else:
+            st.write('Les couleurs A/B utilisent une référence commune au fichier. Les IDs sont propres à chaque segment : '
                  'ID7 dans deux segments ne prouve pas qu’il s’agit du même joueur. Les associations équipe–maillot restent à vérifier.')
+    if continuous:
+        try:
+            with st.spinner('Chargement de l’analyse continue…'):
+                render_continuous(data, path.parent, selected_match)
+            segment_export(segments, selected_match)
+            return
+        except (OSError, ValueError, KeyError, requests.RequestException):
+            st.error('L’analyse continue n’a pas pu être chargée. Réessayez avec le bouton ci-dessous. '
+                     'Les anciens segments restent accessibles en attendant.')
+            if st.button('Réessayer la lecture continue'):
+                remote_manifest.clear()
+                load_overview.clear()
+                st.rerun()
     overview = None
     if data.get('overview'):
         try:

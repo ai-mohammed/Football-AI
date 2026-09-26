@@ -22,4 +22,10 @@ function sourceClock(seconds) {
 function eventInWindow(event,start,end) {
   return event.time_s>=start&&event.time_s<end&&((event.start_s??event.time_s)>=start||(event.origin_in_context&&start===0));
 }
-if (typeof module !== 'undefined') module.exports = {displayPositions, sourceClock, eventInWindow};
+function chapterAt(chapters, time) {
+  // A marker changes the selected label, never the media source or play state.
+  if (!chapters.length) return -1;
+  const index=chapters.findIndex(c => time >= c.start_s && time < c.end_s);
+  return index>=0?index:time<chapters[0].start_s?0:chapters.length-1;
+}
+if (typeof module !== 'undefined') module.exports = {displayPositions, sourceClock, eventInWindow, chapterAt};

@@ -14,11 +14,78 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT/'examples/soccer'), str(ROOT/'scripts')]
 import match_library
 import publish_match
+from publish_continuous_match import validate_analysis
 from sports.common.matches import plan_segments, combine_segments
 from streamlit.testing.v1 import AppTest
 
 
 class MatchLibraryTests(unittest.TestCase):
+    def test_continuous_publication_rejects_holes_and_segment_reset_data(self):
+        manifest={'source':{'filename':'test.mp4'},'analysis_window':{'duration_s':24}}
+        data={'source_video':'test.mp4','duration_s':24,'identity_scope':'continuous',
+              'diagnostics':{'chapter_resets':0},
+              'frames':[{'time_s':n/10,'dt':.1} for n in range(240)]}
+        validate_analysis(data,manifest)
+        missing=copy.deepcopy(data)
+        del missing['frames'][120]
+        with self.assertRaisesRegex(ValueError,'gap'):
+            validate_analysis(missing,manifest)
+        data['identity_scope']='segment'
+        with self.assertRaisesRegex(ValueError,'does not match'):
+            validate_analysis(data,manifest)
+
+    def test_continuous_mode_uses_one_video_and_full_timeline(self):
+        data = json.loads(next((ROOT/'examples/soccer/demo_data').glob('*/analysis.json')).read_text(encoding='utf-8'))
+        data.update(aggregate=True, identity_scope='continuous', duration_s=24., source_start_s=0.,
+                    segments=[{'id':'s0001','start_s':0,'end_s':12}, {'id':'s0002','start_s':12,'end_s':24}])
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory)
+            (root/'analysis.json.gz').write_bytes(gzip.compress(json.dumps(data).encode()))
+            segments=plan_segments(1200,50)
+            for s in segments:
+                s['status']='ready'
+            media_url=match_library.REMOTE_PREFIX+'fixture/continuous-test.mp4'
+            manifest={'title':'Continu', 'source':{'duration_s':24}, 'segments':segments,
+                'analysis_window':{'start_s':0,'end_s':24},
+                'continuous':{'analysis':{'local_path':'analysis.json.gz'},'video':{'url':media_url}}}
+            path=root/'manifest.json'
+            path.write_text(json.dumps(manifest),encoding='utf-8')
+            script=f'''
+import sys
+sys.path.insert(0, {str(ROOT/'examples/soccer')!r})
+import match_library
+from pathlib import Path
+match_library.catalog=lambda: {{'fixture':Path({str(path)!r})}}
+match_library.render_match_library()
+'''
+            import tactical_dashboard
+            with patch.object(match_library,'catalog',match_library.catalog), \
+                 patch.object(match_library,'remote_segment') as segment_loader, \
+                 patch.object(tactical_dashboard,'PLAYER_COMPONENT') as component:
+                app=AppTest.from_string(script,default_timeout=30).run()
+                self.assertEqual(list(app.exception),[])
+                self.assertFalse(any(b.label=='Segment suivant' for b in app.button))
+                self.assertEqual(app.slider[0].value,(0.,24.))
+                self.assertEqual(component.call_args.kwargs['video_url'],media_url)
+                self.assertIn(media_url,component.call_args.kwargs['media_id'])
+                self.assertIsNone(component.call_args.kwargs['video_base64'])
+                app.slider[0].set_value((6.,18.)).run()
+                self.assertEqual(list(app.exception),[])
+                self.assertEqual(component.call_args.kwargs['start'],0.)
+                self.assertEqual(component.call_args.kwargs['end'],24.)
+                self.assertEqual(len(component.call_args.kwargs['chapters']),2)
+                self.assertNotIn('image_detections',component.call_args.kwargs['frames'][0])
+                media_id=component.call_args.kwargs['media_id']
+                component.reset_mock()
+                app.slider[0].set_value((12.,12.)).run()
+                self.assertEqual(list(app.exception),[])
+                component.assert_called_once()
+                self.assertEqual(component.call_args.kwargs['media_id'],media_id)
+                self.assertEqual(component.call_args.kwargs['end'],24.)
+                self.assertEqual(len(app.metric),0)
+                self.assertTrue(any('lecture continue reste disponible' in i.value for i in app.info))
+                segment_loader.assert_not_called()
+
     def test_switching_video_preserves_global_charts_and_filter(self):
         demo = next((ROOT/'examples/soccer/demo_data').glob('*/analysis.json'))
         first = json.loads(demo.read_text(encoding='utf-8'))
@@ -111,12 +178,16 @@ match_library.render_match_library()
     def test_public_index_removes_local_paths_and_unpublished_ready_status(self):
         publisher = publish_match.MatchPublisher.__new__(publish_match.MatchPublisher)
         payload = {'segments': [{'id': 's0001', 'status': 'ready',
-                                'analysis_path': 'private/path', 'video_path': 'private/video'}]}
+                                'analysis_path': 'private/path', 'video_path': 'private/video'}],
+                   'continuous':{'analysis':{'url':'public','local_path':'private/analysis'},
+                                 'video':{'url':'public-video','local_path':'private/video'}}}
         with patch.object(publisher, '_upload') as upload:
             publisher.index(payload)
         data = json.loads(upload.call_args.args[1])
         self.assertEqual(data['segments'][0], {'id': 's0001', 'status': 'awaiting_publication'})
         self.assertEqual(payload['segments'][0]['status'], 'ready')
+        self.assertNotIn('local_path',data['continuous']['analysis'])
+        self.assertNotIn('local_path',data['continuous']['video'])
 
     def test_publisher_retries_final_index_when_worker_already_stopped(self):
         with tempfile.TemporaryDirectory() as directory:

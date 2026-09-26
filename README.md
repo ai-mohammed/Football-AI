@@ -85,25 +85,30 @@ python scripts/build_demos.py --output-dir runs/mes-demos --device cuda --second
 
 La commande écrit dans un nouveau dossier pour préserver les exemples publiés. Après vérification, remplacer les fichiers de chaque extrait dans `examples/soccer/demo_data`. Le format de données et les règles de calcul sont décrits dans [le guide du tableau de bord](docs/TACTICAL_WORKSPACE.md).
 
-## Match complet, segments de 12 secondes
+## Match complet, lecture continue de cinq minutes
 
 La rubrique **Match complet** réunit les **cinq premières minutes** de la vidéo
-Barcelone–Real Madrid fournie : **25 segments de 12 secondes** dans un même
-tableau de bord. Les graphiques couvrent toute la période de 0 à 300 secondes ;
-changer de segment vidéo conserve leurs données et le filtre temporel choisi.
-Les résultats sont calculés sur le GPU local et se consultent directement sur
+Barcelone–Real Madrid fournie dans **une seule vidéo de 300 secondes**, accompagnée
+d'un tableau de bord commun. **25 repères de 12 secondes** permettent de naviguer
+dans le même lecteur, sans arrêt ni rechargement à leurs limites. Le suivi
+**BoT-SORT est recalculé d'un seul tenant** : les repères ne réinitialisent pas
+les pistes, la calibration ou les actions. Ces repères sont gérés dans le navigateur ;
+le filtre temporel agit sur les graphiques et exports indépendamment de la lecture.
+Les résultats sont consultables directement sur
 [Streamlit](https://football-ai-x.streamlit.app/), sans relancer les modèles.
 
 Contrôle du ballon, heatmaps, réseau de passes, largeur/profondeur, déplacements,
 vitesses, événements et exports partagent cette chronologie. Le lecteur affiche
-la position dans le fichier complet. Deux secondes de contexte
-peuvent précéder l'analyse d'un segment pour conserver les actions aux limites,
-sans doubler les mesures. Les couleurs A/B partagent une référence commune ; les
-IDs restent propres à chaque segment. Les ralentis ne sont pas exclus : le cumul
-des segments ne constitue pas une statistique officielle du match.
+la position dans le fichier complet. Les couleurs A/B partagent une référence
+commune. Les changements de caméra du fichier sont conservés ; une disparition
+peut encore interrompre une piste. Un ID ne garantit donc pas l'identité d'un
+joueur pendant tout le match. Les ralentis ne sont pas exclus et les mesures
+restent des estimations, sans prétention de statistiques officielles.
+La calibration et les positions sur la carte restent indisponibles pendant les
+gros plans non exploitables.
 
-Voir le [guide du match complet](docs/FULL_MATCH.md) pour le découpage, la reprise
-du calcul et la publication des résultats.
+Voir le [guide du match complet](docs/FULL_MATCH.md) pour les repères, le calcul
+continu, la reprise du rendu et la publication des résultats.
 
 ## Continuité des actions
 

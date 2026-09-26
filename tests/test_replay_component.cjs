@@ -1,5 +1,5 @@
 const assert = require('node:assert/strict');
-const {displayPositions, sourceClock, eventInWindow} = require('../examples/soccer/components/tactical_player/replay.js');
+const {displayPositions, sourceClock, eventInWindow, chapterAt} = require('../examples/soccer/components/tactical_player/replay.js');
 const p = {identity_id: 1, track_id: 1, team_id: 0, xy: [10, 20]};
 const frames = [
   {time_s: 0, dt: .08, calibrated: true, players: [p]},
@@ -21,3 +21,10 @@ assert.equal(eventInWindow(crossing,.2,12),false);
 assert.equal(eventInWindow({...crossing,origin_in_context:false},0,12),false);
 assert.equal(eventInWindow({time_s:12},0,12),false);
 console.log('Source clock and single-segment ownership of crossing passes: OK');
+const chapters=[{start_s:0,end_s:12},{start_s:12,end_s:24},{start_s:24,end_s:30}];
+assert.equal(chapterAt(chapters,11.98),0);
+assert.equal(chapterAt(chapters,12),1);
+assert.equal(chapterAt(chapters,24),2);
+assert.equal(chapterAt(chapters,30),2);
+assert.equal(chapterAt([],0),-1);
+console.log('Continuous clock selects chapters at boundaries and final frame: OK');

@@ -179,33 +179,45 @@ def render_dashboard(data, video_path, clip_id, playback=None):
         focus = st.selectbox('Suivre une piste', [None, *sorted(players)],
             format_func=lambda p: 'Tous les joueurs visibles' if p is None else f'{label(players[p])} · {TEAM_NAMES.get(players[p]["team_id"], "Non attribuée")}',
             key=f'focus_{clip_id}')
-    if end - start < .05:
+    empty_window = end - start < .05
+    if empty_window and data.get('identity_scope') != 'continuous':
         st.info('Élargissez la période pour afficher les observations.')
         return
-    summary = summarize(data, start, end)
-    path = None if isinstance(video_path, bytes) else Path(video_path)
-    video = video_path if path is None else path.read_bytes() if path.is_file() else None
-    if video:
-        encoded = base64.b64encode(video).decode('ascii') if path is None else video_base64(str(path), path.stat().st_mtime_ns)
+    video_url = video_path.get('url') if isinstance(video_path, dict) else None
+    path = None if video_url or isinstance(video_path, bytes) else Path(video_path)
+    video = None if video_url else video_path if path is None else path.read_bytes() if path.is_file() else None
+    if video_url or video:
+        encoded = None if video_url else base64.b64encode(video).decode('ascii') if path is None else video_base64(str(path), path.stat().st_mtime_ns)
         shown = playback if playback is not None else data
-        media_id = f'{clip_id}:{shown.get("segment_id", "")}'
+        continuous = shown.get('identity_scope') == 'continuous'
+        media_id = f'{clip_id}:{shown.get("segment_id", "")}:{video_url or ""}'
         if playback is not None:
             offset = shown['source_start_s']
             st.caption(f'Vidéo : {offset:.0f}–{offset+shown["duration_s"]:.0f} s du fichier. '
                        f'Graphiques : {start:.0f}–{end:.0f} s, tous les segments de cette période réunis.')
-        PLAYER_COMPONENT(video_base64=encoded,
+        # Send only the map's fields; image boxes and OCR crops do not belong in
+        # the replay payload. Long videos stream directly, without base64 copies.
+        replay_fields = ('time_s', 'dt', 'calibrated', 'players', 'display_players',
+                         'ball', 'possessor', 'calibration_method')
+        PLAYER_COMPONENT(video_base64=encoded, video_url=video_url,
             media_id=f'{media_id}:{path.stat().st_mtime_ns}' if path is not None else media_id,
-            frames=shown['frames'], events=shown['events'], source_fps=shown.get('source_fps', 25),
+            frames=[{k: f[k] for k in replay_fields if k in f} for f in shown['frames']],
+            events=shown['events'], source_fps=shown.get('source_fps', 25),
+            chapters=shown.get('segments', []) if continuous else [], continuous=continuous,
             source_start_s=shown.get('source_start_s', 0.), show_source_clock='source_start_s' in shown,
             pitch=data['pitch'], ball_available=ball_available,
             labels={str(k): label(v) for k, v in players.items()},
             short_labels={str(k): f'ID{v.get("local_identity_id", k)}' for k, v in players.items()},
             numbers={str(k): v.get('jersey_number') for k, v in players.items()},
-            start=0. if playback is not None else start,
-            end=shown['duration_s'] if playback is not None else end,
+            start=0. if playback is not None or continuous else start,
+            end=shown['duration_s'] if playback is not None or continuous else end,
             focus=focus, key=f'replay_{clip_id}', default=None)
     else:
         st.warning('La vidéo annotée est indisponible. Les mesures restent consultables ci-dessous.')
+    if empty_window:
+        st.info('Élargissez la période pour afficher les graphiques. La lecture continue reste disponible.')
+        return
+    summary = summarize(data, start, end)
     cols = st.columns(4)
     known = summary['possession_pct'][0]
     cols[0].metric('Contrôle A / B', f'{known:.0f} / {100-known:.0f} %' if known is not None else 'Indéterminé',
@@ -214,7 +226,10 @@ def render_dashboard(data, video_path, clip_id, playback=None):
     cols[2].metric('Passes probables', summary['passes'] if ball_available else 'Non analysées')
     cols[3].metric('Terrain calibré', f'{summary["calibration_pct"]:.0f} %')
     st.caption(f'Mesures sur {start:.1f}–{end:.1f} s uniquement · ID = piste de suivi ; N° = consensus de lectures ou validation dans Maillots.')
-    if data.get('aggregate'):
+    if data.get('identity_scope') == 'continuous':
+        st.caption('Lecture et suivi continus sur toute la période. Les repères de 12 secondes ne réinitialisent pas les pistes. '
+                   'Une perte de visibilité ou un changement de caméra peut encore interrompre le suivi.')
+    elif data.get('aggregate'):
         st.caption('Vue cumulée : chaque piste garde son segment (S001, S002…). Les mêmes numéros ou IDs '
                    'dans deux segments ne sont pas fusionnés automatiquement. Les épisodes de contrôle restent bornés par segment.')
     tactical, individual, jerseys, events_tab, quality = st.tabs(['Tactique', 'Joueurs', 'Maillots', 'Événements', 'Fiabilité & exports'])
@@ -307,10 +322,10 @@ def render_dashboard(data, video_path, clip_id, playback=None):
                     'Les événements de ballon ne sont pas analysés dans le profil drone.')
         st.caption('Cliquez sur une action sous la vidéo pour la revoir. Les transitions reposent sur la proximité ballon–joueur : elles ne prouvent pas une passe réussie, une interception ou une récupération.')
     with quality:
-        st.subheader('Ce que l’extrait permet de mesurer')
+        st.subheader('Ce que la vidéo permet de mesurer')
         a, b, c = st.columns(3)
         a.metric('Ballon localisé sur le terrain', f'{summary["ball_pct"]:.0f} %' if ball_available else 'Non analysé')
-        b.metric('Pistes cumulées par segment' if data.get('aggregate') else 'Pistes cartographiées', len(summary['players']))
+        b.metric('Pistes cumulées par segment' if data.get('identity_scope') == 'segment' else 'Pistes cartographiées', len(summary['players']))
         c.metric('Pistes avec lecture de maillot' if data.get('aggregate') else 'Maillots confirmés',
                  sum(bool(players[p['identity_id']].get('jersey_number')) for p in summary['players'])
                  if data.get('diagnostics', {}).get('ocr_enabled', True) or st.session_state.get(review_key) else 'Non analysés')
@@ -335,6 +350,8 @@ def render_dashboard(data, video_path, clip_id, playback=None):
                   'players': summary['players'], 'frames': summary['frames'], 'events': summary['events']}
         c.download_button('Données · JSON', json.dumps(export, ensure_ascii=False, indent=2),
             file_name=f'{clip_id}_{start:g}-{end:g}_analyse.json', mime='application/json', **WIDTH)
-        if video:
+        if video_url:
+            st.link_button('Télécharger la vidéo continue', video_url)
+        elif video:
             st.download_button('Vidéo annotée de l’extrait complet', video,
                 file_name=f'{clip_id}.mp4', mime='video/mp4')
