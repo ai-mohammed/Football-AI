@@ -1,4 +1,4 @@
-"""Football AI: a fast tactical workspace for video segments."""
+"""Football AI: a tactical workspace for clips and continuous match analysis."""
 import hashlib
 from pathlib import Path
 import sys
@@ -40,7 +40,7 @@ demos = [p for p in sorted(DEMO_DIR.iterdir()) if p.is_dir() and (p / 'analysis.
 
 with st.sidebar:
     st.title('Football AI')
-    st.caption('L’espace d’analyse de vos extraits')
+    st.caption('L’espace d’analyse de vos vidéos')
     page = st.radio('Espace de travail', ['Extraits analysés', 'Match complet', 'Importer une vidéo'], label_visibility='collapsed')
     st.divider()
     if page == 'Extraits analysés' and demos:
@@ -57,7 +57,7 @@ with st.sidebar:
     st.divider()
     st.caption('Développé par Mohammed ADDI')
     st.markdown('[Code & méthode](https://github.com/ai-mohammed/Football-AI)')
-    st.caption('Version · Atelier tactique 3')
+    st.caption('Version 4 · Lecture continue')
 
 if page == 'Extraits analysés':
     st.title('Analyse tactique')
