@@ -57,7 +57,7 @@ with st.sidebar:
     st.divider()
     st.caption('Développé par Mohammed ADDI')
     st.markdown('[Code & méthode](https://github.com/ai-mohammed/Football-AI)')
-    st.caption('Version 4 · Lecture continue')
+    st.caption('Version 4.1 · Suivi et calibration')
 
 if page == 'Extraits analysés':
     st.title('Analyse tactique')

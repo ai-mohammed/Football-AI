@@ -198,7 +198,7 @@ def render_dashboard(data, video_path, clip_id, playback=None):
         # Send only the map's fields; image boxes and OCR crops do not belong in
         # the replay payload. Long videos stream directly, without base64 copies.
         replay_fields = ('time_s', 'dt', 'calibrated', 'players', 'display_players',
-                         'ball', 'possessor', 'calibration_method')
+                         'ball', 'possessor', 'calibration_method', 'unsupported_layout')
         PLAYER_COMPONENT(video_base64=encoded, video_url=video_url,
             media_id=f'{media_id}:{path.stat().st_mtime_ns}' if path is not None else media_id,
             frames=[{k: f[k] for k in replay_fields if k in f} for f in shown['frames']],

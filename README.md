@@ -59,6 +59,13 @@ Le choix **Drone · terrain entier** active l'analyse par zones de 1280 pixels a
 
 Les dimensions du terrain sont réglables dans l'import et la carte reprend ces mêmes dimensions. La référence par défaut est **105 × 68 m**, avec une surface de réparation corrigée de **16,5 × 40,32 m**. Les mesures restent estimées tant que les dimensions réelles du stade ne sont pas connues. Voir [les essais de calibration et de vue drone](reports/AERIAL_CALIBRATION.md).
 
+Le suivi télévisé vérifie désormais les changements de plan, exclut les nouvelles
+pistes hors terrain et compare la calibration au mouvement mesuré des repères.
+La double vue encadrée présente dans le match de démonstration suspend les mesures
+pendant 3,44 secondes ; la vidéo reste continue. Sur les mêmes cinq minutes, les
+pistes très brèves passent de 339 à 243. Les identités après disparition restent
+imparfaites : [résultats, protocole et limites](reports/BROADCAST_STABILITY.md).
+
 L'interface limite les traitements à **30 secondes avec CUDA**, **8 secondes sur CPU**. Le CPU est automatiquement utilisé si aucun GPU compatible n'est présent. L'analyse complète peut prendre plusieurs minutes et n'est pas temps réel ; utiliser les démos pour une présentation fluide. Le GPU du PC n'est pas accessible automatiquement depuis l'application hébergée. Les fichiers temporaires d'import sont nettoyés après traitement ; le résultat reste dans la session Streamlit.
 
 Pour un traitement reproductible, avec les poids déjà téléchargés :

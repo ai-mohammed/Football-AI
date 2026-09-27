@@ -72,8 +72,8 @@ function draw(force=false){
  const frame=args.frames[idx];['people','paths','ball'].forEach(id=>el(id).replaceChildren());
  const valid=frame&&frame.calibrated&&t<frame.time_s+frame.dt+.001;
  el('pitch').dataset.time=frame?String(frame.time_s):'';el('pitch').dataset.calibrated=String(!!valid);
- el('unavailable').textContent=valid?'':'Terrain non calibré à cet instant';
- if(!valid){el('map-status').textContent='Positions indisponibles · aucune extrapolation';return}
+ el('unavailable').textContent=valid?'':frame?.unsupported_layout?'Vue encadrée : carte suspendue':'Terrain non calibré à cet instant';
+ if(!valid){el('map-status').textContent=frame?.unsupported_layout?'Vidéo conservée · mesures suspendues sur ce passage':'Positions indisponibles · aucune extrapolation';return}
  const focus=args.focus;
  const display=displayPositions(args.frames,idx,t,args.events);
  for(const p of display){

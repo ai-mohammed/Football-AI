@@ -143,6 +143,7 @@ class PlayerMatchAnalyzer:
         ball_tracker = MotionBallTracker()
         control_filter = ControlFilter()
         calibration = TemporalPitchCalibrator(self.config.vertices)
+        previous_layout_blocked = False
 
         def ball_callback(image):
             result = self.ball_model(image, imgsz=640, verbose=False)[0]
@@ -155,7 +156,8 @@ class PlayerMatchAnalyzer:
                 break
             timestamp = index * dt
             self.state.processed_frames += 1
-            if shots.update(frame):
+            shot_changed = shots.update(frame)
+            if shot_changed:
                 tracker.reset()
                 ball_tracker = MotionBallTracker()
                 control_filter.reset()
@@ -163,8 +165,24 @@ class PlayerMatchAnalyzer:
                 self.ball_annotator = BallAnnotator(radius=6, buffer_size=10)
                 self.state.cut(timestamp)
             boundary = full_pitch_boundary(frame) if self.profile == "aerial" else None
+            if self.profile == "aerial":
+                transformer = boundary_transformer(boundary, self.config.length, self.config.width)
+            else:
+                keypoints = sv.KeyPoints.from_ultralytics(self.pitch_model(frame, verbose=False)[0])
+                transformer = calibration.update(frame, keypoints, timestamp)
+                if calibration.layout_blocked != previous_layout_blocked:
+                    tracker.reset()
+                    ball_tracker = MotionBallTracker()
+                    control_filter.reset()
+                    self.ball_annotator = BallAnnotator(radius=6, buffer_size=10)
+                    if not shot_changed:
+                        self.state.cut(timestamp)
+                previous_layout_blocked = calibration.layout_blocked
             result = self._detect_people(frame, boundary)
-            detections = tracker.update(result, frame)
+            detections = tracker.update(result, frame,
+                transformer=transformer if self.profile == 'broadcast' else None,
+                pitch_size=(self.config.length, self.config.width),
+                allow_new_tracks=transformer is not None or self.profile == 'aerial')
             players = detections[detections.class_id == 2]
             keepers = detections[detections.class_id == 1]
             teams = np.full(len(players), -1, dtype=int)
@@ -187,15 +205,10 @@ class PlayerMatchAnalyzer:
             for track, team in zip(keepers.tracker_id, keeper_teams):
                 self.state.observe(track, team, timestamp)
 
-            if self.profile == "aerial":
-                transformer = boundary_transformer(boundary, self.config.length, self.config.width)
-            else:
-                keypoints = sv.KeyPoints.from_ultralytics(self.pitch_model(frame, verbose=False)[0])
-                transformer = calibration.update(frame, keypoints, timestamp)
             # A failed calibration immediately invalidates pitch-space statistics.
             # The broadcast ball model is not validated for overhead views. Keep
             # possession unknown instead of generating passes from white markings.
-            ball = (sv.Detections.empty() if self.profile == "aerial" else
+            ball = (sv.Detections.empty() if self.profile == "aerial" or calibration.layout_blocked else
                     ball_tracker.update(ball_slicer(frame).with_nms(threshold=0.1), timestamp, info.width))
             possessor = None
             sample_players = []
@@ -235,6 +248,9 @@ class PlayerMatchAnalyzer:
                                                       for track, cls, box in zip(detections.tracker_id,
                                                                                 detections.class_id, detections.xyxy)],
                                  'calibration_method': ('aerial_boundary' if self.profile == 'aerial' else calibration.method) if transformer is not None else None,
+                                 'calibration_jump_rejected': calibration.rejected_jump if self.profile == 'broadcast' else False,
+                                 'calibration_smoothed': calibration.smoothed if self.profile == 'broadcast' else False,
+                                 'unsupported_layout': calibration.layout_blocked if self.profile == 'broadcast' else False,
                                  'pitch_boundary_px': boundary.round(1).tolist() if boundary is not None else None,
                                  'ball_image_xy': ball.get_anchors_coordinates(sv.Position.CENTER)[0].round(2).tolist() if len(ball) else None,
                                  'control_candidate': control_candidate,
@@ -349,6 +365,10 @@ class PlayerMatchAnalyzer:
                 "frames": total, "calibrated_frames": self.state.calibrated_frames,
                 "calibration_coverage_pct": round(100 * self.state.calibrated_frames / total, 1) if total else 0,
                 "optical_flow_calibrated_frames": sum(s.get('calibration_method') == 'pitch_optical_flow' for s in self.samples),
+                "calibration_jumps_rejected": sum(s.get('calibration_jump_rejected', False) for s in self.samples),
+                "calibration_smoothed_frames": sum(s.get('calibration_smoothed', False) for s in self.samples),
+                "unsupported_layout_frames": sum(s.get('unsupported_layout', False) for s in self.samples),
+                "broadcast_track_births": "calibrated_pitch_only" if self.profile == 'broadcast' else "aerial_boundary",
                 "pass_evidence": "confirmed_control_and_observed_ball_flight",
                 "unresolved_identities": sum(p["jersey_number"] is None for p in self.report()),
                 "identity_conflicts": len(self.state.ambiguous_jerseys),

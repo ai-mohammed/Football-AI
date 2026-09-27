@@ -1,0 +1,46 @@
+{
+  "before": {
+    "duration_s": 300.0,
+    "observations": 3750,
+    "raw_person_tracks": 780,
+    "tracks_visible_under_half_second": 339,
+    "reported_identities": 714,
+    "jersey_consensus_identities": 18,
+    "camera_change_events": 1,
+    "probable_passes": 21,
+    "calibrated_seconds": 197.28,
+    "observed_person_seconds": 3387.36,
+    "unknown_control_seconds": 250.96,
+    "calibration_jumps_rejected": 0
+  },
+  "after": {
+    "duration_s": 300.0,
+    "observations": 3750,
+    "raw_person_tracks": 617,
+    "tracks_visible_under_half_second": 243,
+    "reported_identities": 555,
+    "jersey_consensus_identities": 16,
+    "camera_change_events": 34,
+    "probable_passes": 21,
+    "calibrated_seconds": 195.92,
+    "observed_person_seconds": 3349.12,
+    "unknown_control_seconds": 251.6,
+    "calibration_jumps_rejected": 11
+  },
+  "position_continuity": {
+    "before": {
+      "comparable_frame_pairs": 2265,
+      "median_player_step_m": 0.2815,
+      "p95_median_player_step_m": 1.8598,
+      "frames_median_step_above_1m": 259
+    },
+    "after": {
+      "comparable_frame_pairs": 2257,
+      "median_player_step_m": 0.2684,
+      "p95_median_player_step_m": 1.446,
+      "frames_median_step_above_1m": 198
+    }
+  },
+  "scope": "Same five-minute source interval. Continuity and coverage diagnostics; no annotated identity, pass or calibration ground truth.",
+  "source_video": "FC Barcelona 2 - 0 Real Madrid 2025_26 PARTIDO COMPLETO_720p.mp4"
+}

@@ -79,11 +79,19 @@ class FootballTracker:
             self.tracker.reset()
         self.namespace.clear()
 
-    def update(self, result, frame):
+    def update(self, result, frame, transformer=None, pitch_size=None, allow_new_tracks=True):
         # Track football people only. The dedicated ball tracker is separate.
         boxes = result.boxes.cpu().numpy()
         boxes = boxes[np.isin(boxes.cls, [1, 2, 3])]
         boxes = distinct_people(boxes)
+        if transformer is not None and pitch_size is not None and len(boxes):
+            feet = np.column_stack(((boxes.xyxy[:, 0]+boxes.xyxy[:, 2])/2, boxes.xyxy[:, 3]))
+            projected = transformer.transform_points(feet)
+            # Keep the touchline/goal border, but not spectators and benches.
+            inside = (np.isfinite(projected).all(axis=1)
+                      & (projected >= -150).all(axis=1)
+                      & (projected <= np.asarray(pitch_size)+150).all(axis=1))
+            boxes = boxes[inside]
         original_boxes = boxes.xyxy.copy()
         if self.minimum_box_side_ratio and len(boxes):
             # Small overhead players can move further than their box width
@@ -96,7 +104,15 @@ class FootballTracker:
             padded = np.column_stack((centers-half_size, centers+half_size, boxes.conf, boxes.cls))
             boxes = Boxes(padded.astype(np.float32), frame.shape[:2])
         with self._isolated_ids():
-            tracks = self.tracker.update(boxes, frame)
+            threshold = self.tracker.args.new_track_thresh
+            if not allow_new_tracks:
+                # Continue existing 2D tracks through a brief landmark miss,
+                # but a close-up/bench shot must not populate the match roster.
+                self.tracker.args.new_track_thresh = 1.01
+            try:
+                tracks = self.tracker.update(boxes, frame)
+            finally:
+                self.tracker.args.new_track_thresh = threshold
         if not len(tracks):
             empty = sv.Detections.empty()
             empty.tracker_id = np.empty(0, dtype=int)

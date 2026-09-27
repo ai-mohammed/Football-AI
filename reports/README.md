@@ -1,6 +1,7 @@
-# Résultats mesurés — 24 septembre 2026
+# Résultats mesurés — 27 septembre 2026
 
-Dernière vérification : [détection, équipes et associations de maillots](JERSEY_IDENTITY.md).
+Dernière vérification : [stabilité et calibration des cinq minutes](BROADCAST_STABILITY.md).
+L’essai précédent concerne [détection, équipes et associations de maillots](JERSEY_IDENTITY.md).
 Elle prolonge les corrections de [passes et continuité](CONTINUITY.md), avec première
 passe retrouvée et rendu à 25 images/s. Les expériences ci-dessous sont historiques ;
 les derniers résultats des démos sont dans ces deux rapports.

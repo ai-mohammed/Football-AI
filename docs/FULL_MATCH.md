@@ -48,6 +48,33 @@ plan. Une occlusion ou une sortie du champ peut encore produire une nouvelle
 piste. La continuité entre deux repères ne garantit pas une ré-identification
 parfaite après tous les changements de caméra.
 
+Le contrôle des plans combine les variations d’image, de couleur et les
+correspondances visuelles. Cela détecte aussi des transitions de réalisation ;
+ce n’est pas un classement sémantique des ralentis. Les mouvements de caméra
+cohérents sont vérifiés pour limiter les fausses ruptures.
+
+Avant d’ouvrir une nouvelle piste dans le profil télévisé, l’analyse exige une
+calibration du terrain. Les points d’appui projetés à plus de 1,5 m des limites
+sont exclus du suivi : spectateurs et bancs ne doivent pas gonfler l’effectif.
+Une piste existante peut continuer en image pendant une courte perte de repères,
+mais elle ne produit alors aucune position métrique. Cette règle peut retarder
+l’apparition d’un vrai joueur lorsque la calibration échoue ; elle ne force
+jamais le total à onze.
+
+Une calibration nouvelle est aussi comparée aux repères suivis dans l’image.
+Un désaccord médian dépassant deux mètres est rejeté tant que le déplacement
+mesuré des repères reste fiable. Le relais par suivi optique expire après
+0,32 seconde et ne prolonge pas une géométrie simplement mémorisée.
+Lorsque les deux estimations concordent, la correction des repères du modèle
+est progressive, tandis que le mouvement de caméra mesuré est conservé.
+
+Les compositions vidéo fortement encadrées par des bandes noires, dont la
+double vue présente dans cet exemple, suspendent la carte et les mesures.
+La vidéo continue ; aucun joueur de la vue secondaire n’est placé artificiellement
+sur le terrain. Ce filtre de mise en page est conservateur : il peut aussi
+écarter une vidéo simple avec de larges bandes noires. Il ne détecte pas tous
+les montages et ne constitue pas une détection générale des ralentis.
+
 Les couleurs A/B sont apprises sur des plans larges et conservées pour le calcul.
 Le petit groupe de couleur jaune correspondant à des arbitres avait faussé le
 premier regroupement ; il est écarté lorsque les critères de groupe rare et
@@ -101,3 +128,20 @@ via `build_match_overview.py` sont conservés pour les anciens catalogues et le
 secours en cas d’échec du chargement de l’analyse continue. Dans ce mode historique, les IDs
 restent préfixés par segment et ne sont pas fusionnés. Ces anciennes analyses
 ne sont jamais mélangées aux résultats de la nouvelle analyse continue.
+
+## Vérification reproductible
+
+`scripts/audit_match_geometry.py` examine les mêmes images source que l’analyse,
+conserve les points détectés dans un cache associé à la source et au modèle,
+et exporte les changements de plan et les désaccords géométriques rejetés.
+`scripts/compare_match_stability.py` compare deux analyses de la même période
+avec le même échantillonnage : pistes brèves, personnes observées, calibration
+et événements. Une baisse du nombre de pistes n’est pas une mesure IDF1/HOTA ;
+il faut des identités annotées pour mesurer la justesse de la ré-identification.
+
+`scripts/refine_match_geometry.py` permet de refaire la calibration à partir
+des repères enregistrés sans relancer les détecteurs. Il conserve les détections
+et les preuves de maillots, puis recalcule positions, distances, contrôle et
+événements. Les anciennes mesures ne sont pas réutilisées. Le rendu annoté doit
+être régénéré lorsque des vues sont exclues. Résultats et limites de l’essai :
+[stabilité de la diffusion](../reports/BROADCAST_STABILITY.md).
